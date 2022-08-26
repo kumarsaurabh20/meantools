@@ -1,5 +1,5 @@
-Template for the Read the Docs tutorial
-=======================================
+General documentation and tutorial for MEANtools
+================================================
 
 This GitHub template includes fictional Python library
 with some basic Sphinx docs.
