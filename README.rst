@@ -3,7 +3,7 @@ General documentation for MEANtools
 
 Read the documentation here:
 
-https://meantools-docs.readthedocs.io/en/latest/
+https://meantools.readthedocs.io/en/latest/
 
 Maintainer
 ==========
