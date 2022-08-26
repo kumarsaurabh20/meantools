@@ -1,10 +1,8 @@
-Welcome to Lumache's documentation!
+Welcome to MEANtools documentation!
 ===================================
 
-**Lumache** (/lu'make/) is a Python library for cooks and food lovers
-that creates recipes mixing random ingredients.
-It pulls data from the `Open Food Facts database <https://world.openfoodfacts.org/>`_
-and offers a *simple* and *intuitive* API.
+**MEANtools** is a Python based *omics* data integration tool that predicts biosynthetic pathways by integrating genomics, 
+transcriptomics and metabolomics with the known reaction databases. It offers a *simple* and *intuitive* API.
 
 Check out the :doc:`usage` section for further information, including
 how to :ref:`installation` the project.
