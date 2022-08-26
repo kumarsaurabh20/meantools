@@ -1,9 +1,14 @@
-General documentation and tutorial for MEANtools
-================================================
+General documentation for MEANtools
+===================================
 
-This GitHub template includes fictional Python library
-with some basic Sphinx docs.
+Read the documentation here:
 
-Read the tutorial here:
+https://meantools-docs.readthedocs.io/en/latest/
 
-https://docs.readthedocs.io/en/stable/tutorial/
+Maintainer
+==========
+Dr. Kumar Saurabh Singh (kumar.singh@wur.nl)
+
+Principal Investigator
+======================
+Dr. Marnix Medema (marnix.medema@wur.nl)
