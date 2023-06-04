@@ -1,8 +1,8 @@
 Welcome to MEANtools documentation!
 ===================================
 
-**MEANtools** is a Python based *omics* data integration tool that predicts biosynthetic pathways by integrating genomics, 
-transcriptomics and metabolomics with the known reaction databases. It offers a *simple* and *intuitive* API.
+**MEANtools** (Metabolite Anticipation tools) is a Python based *omics* data integration workflow that predicts biosynthetic pathways by integrating genomics, 
+transcriptomics and metabolomics data with the known reaction databases. It offers a *simple* and *intuitive* API.
 
 Check out the :doc:`usage` section for further information, including
 how to :ref:`installation` the project.

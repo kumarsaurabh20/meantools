@@ -18,4 +18,3 @@ Workflow
 .. image:: images/workflow.png
    :width: 600
 
-
