@@ -22,12 +22,12 @@ def get_args():
     parser.add_argument('-m', '--method', default='pearson', type=str, required=False, choices=['spearman', 'pearson', 'pearsonlog'], help='Default is the pearson correlation method; pearsonlog uses log-transformed arrays, where arrays with atleast a zero are always removed first regardless of other options.')
     parser.add_argument('-mr', '--mutual_rank', default=False, required=False, action='store_true', help='MR has more module predictive power than pearson or pearson log.')
     parser.add_argument('-cl', '--clusterone', default=False, required=False, action='store_true', help='Clusterone creates modules based on MR and edge weights.')
-    parser.add_argument('-clo', '--clusterone_outputfile', default='', type=str, action='store', required=False, help='Name of the clusterone output file.')
     parser.add_argument('-mad', '--mad_filter', default=False, required=False, action='store_true', help='Removes arrays with a MAD of 0.')
     parser.add_argument('-r', '--remove_zeros', default=False, required=False, action='store_true', help='Removes arrays with at least one 0.')
     parser.add_argument('-c', '--correlation_cutoff', default=0.1, required=False, type=float, help='Minimum correlation coeffecient cut-off. Default: 0.3')
     parser.add_argument('-w', '--edge_weight_cutoff', default=0.01, required=False, type=float, help='Minimum MR-derived edge weight. Default: 0.01')
-    parser.add_argument('-d', '--decay_rate', default=5, required=False, type=int, help='Decay rate could be any value but generally it is either {5, 10, 25, 50, 100}. Default: 25')
+    parser.add_argument('-d', '--decay_rate', default=5, required=False, type=int, help='Decay rate of default: 25 would be used.')
+    parser.add_argument('-mdr', '--multi_decay_rates', default=[5,10,25], required=False, nargs='+', type=int, help='Decay rate could be any value but generally it is either {5, 10, 25, 50, 100}. In this case all 5 values will be used separately to estimate edges. Usage:: -mdr 5 10 25 50 100')
     parser.add_argument('-a', '--annotation', default='', type=str, required=False, help='Comma-delimited two-columns file with annotations. No header.')
     parser.add_argument('-p', '--plot', default=False, required=False, action='store_true', help='Plots showing the correlation will be created.')
     parser.add_argument('-t', '--threads', default=8, type=int, required=False)
@@ -130,7 +130,9 @@ def main(Options):
     transcripts_df = transcripts_df[common_labels]
     metabolites_df = metabolites_df[common_labels]
     
-
+    print(transcripts_df)
+    print(metabolites_df)
+    
     # Kumar 2nd Jan 2022
     # Manager class to make all process share the global variables.
     mgr = Manager()
@@ -169,25 +171,67 @@ def main(Options):
         #        
         # Kumar
         # Decay rate could be any value but generally it is either {5, 10, 25, 50, 100} from the Wisecaver (2017) paper.    
-        weights_df = mutual_ranks.get_weight_from_MR(edges_df, Options.edge_weight_cutoff, Options.decay_rate)
-        tablename = Options.sqlite_table_name + "_MR_weights"
-        Options.weightsfile = os.path.join(script, 'sim_weights_file.csv')
-        gizmos.print_milestone('Writing mutual ranks to the database...', Options.verbose)
-        weights_df.to_sql(tablename, conn, if_exists="append", index=False)
-        del weights_df['MR']
-        weights_df.to_csv(Options.weightsfile, index=False, header=False, sep=' ') 
+        # Loop will generate 5 networks with 5 different decay rates
+        if Options.multi_decay_rates:
+            
+            for d in Options.multi_decay_rates:
+            
+                weights_df = mutual_ranks.get_weight_from_MR(edges_df, Options.edge_weight_cutoff, d)
+                
+                tablename = Options.sqlite_table_name + "_MR_weights" + "_DR={}".format(d)
+                
+                Options.weightsfile = os.path.join(script, 'sim_weights_DR={}_file.csv'.format(d))
+                
+                print('Writing mutual ranks with decay rate of {} to the database...'.format(d))
+                weights_df.to_sql(tablename, conn, if_exists="append", index=False)
+                del weights_df['MR']
+                
+                # Write the weights data to a file to be read later by ClusterOne
+                weights_df.to_csv(Options.weightsfile, index=False, header=False, sep=' ')
+            
+                if Options.clusterone:
+                    
+                    Options.clusteronepath = os.path.join(script, 'cluster_one-1.0.jar')
+                    Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR={}.csv'.format(d))
+                    
+                    print('Generating modules with the decay rate of {} using ClusterOne...'.format(d))
+                    mutual_ranks.run_clusterone(Options.clusterone_outputfile, Options.clusteronepath, Options.weightsfile)
+                    
+                    # move the clusterOne output file data to the sqlite db
+                    clone_out_df = pd.read_csv(Options.clusterone_outputfile)
+                    tablename = Options.sqlite_table_name + "_clone" + "_DR={}".format(d)
+                    clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+                    
+                    # remove clusterone and weights file from the current folder
+                    os.remove(Options.clusterone_outputfile)
+                    os.remove(Options.weightsfile)
+
+
+        else:
+
+            # Kumar
+            # if multi_decay_rates is not set as True
+            # The decay rate parameter could be used to generate edges with only one decay constant.
+            # default is 25
+
+            weights_df = mutual_ranks.get_weight_from_MR(edges_df, Options.edge_weight_cutoff, Options.decay_rate)
+            tablename = Options.sqlite_table_name + "_MR_weights"
+            Options.weightsfile = os.path.join(script, 'sim_weights_file.csv')
+            gizmos.print_milestone('Writing mutual ranks to the database...', Options.verbose)
+            weights_df.to_sql(tablename, conn, if_exists="append", index=False)
+            del weights_df['MR']
+            weights_df.to_csv(Options.weightsfile, index=False, header=False, sep=' ') 
         
-        if Options.clusterone:
-            Options.clusteronepath = os.path.join(script, 'cluster_one-1.0.jar')
-            #if os.access(Options.clusteronepath, os.X_OK):
-            #    pass
-            #else:
-            #    sys.exit("Error :: ClusterOne could not be located!") 
-            gizmos.print_milestone('Generating modules by clustering genes and metabolites using ClusterOne...', Options.verbose)
-            mutual_ranks.run_clusterone(Options.clusterone_outputfile, Options.clusteronepath, Options.weightsfile)
-            clone_out_df = pd.read_csv(Options.clusterone_outputfile)
-            tablename = Options.sqlite_table_name + "_clone"
-            clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+            if Options.clusterone:
+                Options.clusteronepath = os.path.join(script, 'cluster_one-1.0.jar')
+                Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR={}.csv'.format(Options.decay_rate))
+                gizmos.print_milestone('Generating modules by clustering genes and metabolites using ClusterOne...', Options.verbose)
+                mutual_ranks.run_clusterone(Options.clusterone_outputfile, Options.clusteronepath, Options.weightsfile)
+                clone_out_df = pd.read_csv(Options.clusterone_outputfile)
+                tablename = Options.sqlite_table_name + "_clone"
+                clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+                os.remove(Options.clusterone_outputfile)
+                os.remove(Options.weightsfile)
 
     conn.close()
 
