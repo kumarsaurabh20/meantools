@@ -129,7 +129,7 @@ def main(Options):
     common_labels = sorted(list(transcripts_labels.intersection(metabolites_labels)))
     transcripts_df = transcripts_df[common_labels]
     metabolites_df = metabolites_df[common_labels]
-    
+
     print(transcripts_df)
     print(metabolites_df)
     
@@ -221,7 +221,9 @@ def main(Options):
             weights_df.to_sql(tablename, conn, if_exists="append", index=False)
             del weights_df['MR']
             weights_df.to_csv(Options.weightsfile, index=False, header=False, sep=' ') 
-        
+
+
+            # if clusterone is set as True, clusterone will create modules using the edges information
             if Options.clusterone:
                 Options.clusteronepath = os.path.join(script, 'cluster_one-1.0.jar')
                 Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR={}.csv'.format(Options.decay_rate))

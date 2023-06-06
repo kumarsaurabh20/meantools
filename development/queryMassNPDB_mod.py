@@ -42,7 +42,7 @@ def split_dataframe(df, chunk_size):
 def NPDB_to_pd(npdb):
     conn = sqlite3.connect(npdb)
     c = conn.cursor()
-    query = c.execute("SELECT structure.structure_id,structure.monoisotopic_mass, structure_has_data_source.source_id, structure_has_data_source.source_name, structure.inchi,structure.inchi_key2,structure.smile FROM structure left join structure_has_data_source on structure_has_data_source.structure_id = structure.structure_id")
+    query = c.execute("SELECT structure.structure_id,structure.monoisotopic_mass, structure_has_data_source.source_id, structure_has_data_source.source_name, structure.inchi,structure.inchi_key2,structure.smile,structure.superclass,structure.class,structure.subclass FROM structure left join structure_has_data_source on structure_has_data_source.structure_id = structure.structure_id")
     cols = [column[0] for column in query.description]
     results = pd.DataFrame.from_records(data=query.fetchall(), columns=cols)
     c.close()
