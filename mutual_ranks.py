@@ -59,7 +59,7 @@ def get_weight_from_MR(edges_df, edge_weight_cutoff, decay_rate):
     # CONVERT TO EDGE WEIGHT
     print('Estimating edge weights using exponetial decay...')
     edges_df['weight'] = np.exp(-(edges_df.MR - 1) / decay_rate)  # other options: /5 /10 /25 /50 /100
-    weights_df = edges_df[edges_df.weight >= edge_weight_cutoff].reset_index(drop=True)
+    weights_df = edges_df[edges_df.weight > edge_weight_cutoff].reset_index(drop=True) # default edge_weight_cutoff is 0.01
     
     return weights_df
 

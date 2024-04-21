@@ -23,53 +23,43 @@ import gizmos
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-tm', '--transitions_matches', action='store', help='Output from pathMassTransitions.py or treatMassTransitions.py')
-    parser.add_argument('-spm', '--structure_predictions_matches', action='store', help='Output from queryMassNPDB.py; Four column CSV with header. Column :1 ms_name, column 2: structure_id, column 3: structure_mm, column 4: SMILES')
+    parser.add_argument('-c','--merged_clusters_file', default=True, action='store', required=True, help='Three column csv files <id, genes, metabolites>')
     parser.add_argument('-r','--rules', action='store', help='Output from validateRulesWithOrigins.py')
-    parser.add_argument('-rrrm','--RR_reaction_map', action='store', help='Output from mapBaseRetroRules.py.')
-    parser.add_argument('-o', '--output_folder', action='store')
-    parser.add_argument('-pfam', '--pfam_RR_annotation', default='', action='store', required=False, help='Nine-column csv. reaction_id, uniprot_id, Pfams, KO, rhea_id_reaction, kegg_id_reaction, rhea_confirmation, kegg_confirmation, KO_prediction')
-    parser.add_argument('-gannot', '--gene_annotation', default='', required=False, action='store',  help='Two-column csv. Gene, pfam1;pfam2')
-    parser.add_argument('-corr', '--correlation', default='', required=False, action='store',  help='Four column CSV: metabolite, gene, correlation_coefficient, P-value')
-    parser.add_argument('-level', '--annotation_level', default='strict', required=False, choices=['strict', 'medium', 'loose'], help='Default: strict.')
+    parser.add_argument('-m','--RR_reaction_map', action='store', help='Output from mapBaseRetroRules.py (base_files.csv).')
+    parser.add_argument('-p', '--pfam_RR_annotation', default='', action='store', required=False, help='Nine-column csv. reaction_id, uniprot_id, Pfams, KO, rhea_id_reaction, kegg_id_reaction, rhea_confirmation, kegg_confirmation, KO_prediction')
+    parser.add_argument('-a', '--gene_annotation', default='', required=False, action='store',  help='Two-column csv. Gene, pfam1;pfam2')
+    parser.add_argument('-d', '--pfam_dict', default='', required=False, action='store',  help='Three-column csv. Acc,Name,Desc')
+    parser.add_argument('-s', '--chemical_search_space', default='strict', required=False, choices=['strict', 'medium', 'loose'], help='Default: strict.')
     parser.add_argument('-i', '--iterations', default=5, type=int, required=False, help='Number of iterations. Default: 5')
-    parser.add_argument('-oqs', '--only_query_small', default=False, action='store_true', required=False, help='Use if we should query only small_rules.')
-    parser.add_argument('-mmtd', '--max_mass_transition_diff', default=0.05, type=float, required=False, help='Tolerance for the difference in expected and observed mass_transitions. Default = 0.05')
-    parser.add_argument('-usmmf', '--use_substrate_mm', default=False, action='store_true', required=False, help='Flag. Otherwise, mm is recalculated.')
-    parser.add_argument('-cc', '--corr_cutoff', default=0.7, required=False, type=float, help='Minimum absolute correlation coefficient. Default: 0.7. Use 0 for no cutoff.')
-    parser.add_argument('-cp', '--corr_p_cutoff', default=0.01, required=False, type=float, help='Maximum P value of correlation. Default: 0.1. Use 1 for no cutoff.')
-    parser.add_argument('-t', '--threads', default=4, type=int, required=False)
+    parser.add_argument('-q', '--only_query_small', default=False, action='store_true', required=False, help='Use if we should query only small_rules.')
+    parser.add_argument('-t', '--max_mass_transition_diff', default=0.05, type=float, required=False, help='Tolerance for the difference in expected and observed mass_transitions. Default = 0.05')
+    parser.add_argument('-u', '--use_substrate_mm', default=False, action='store_true', required=False, help='Flag. Otherwise, mm is recalculated.')
+    parser.add_argument('-dn', '--sqlite_db_name', default=True, action='store', required=True, help='Provide a name for the database!')
+    parser.add_argument('-tn', '--sqlite_table_name', default=True, action='store', required=True, help='Provide a name for the database table!')
+    parser.add_argument('-ct', '--sqlite_corr_tablename', default=True, action='store', required=True, help='Provide a name of the correlation table in the database!')
+    parser.add_argument('-mt', '--sqlite_metabolite_tablename', default=True, action='store', required=True, help='Provide a name of the metabolite annotation table in the database!')
+    parser.add_argument('-tt', '--sqlite_transition_tablename', default=True, action='store', required=True, help='Provide a name of the transitions table in the database!')
+    parser.add_argument('-o', '--output_folder', action='store')
+    parser.add_argument('-n', '--threads', default=4, type=int, required=False)
     parser.add_argument('-v', '--verbose', default=False, action='store_true', required=False)
-    parser.add_argument('-d', '--dev', default=False, action='store_true', required=False, help='Developer mode.')
+    parser.add_argument('-dv', '--dev', default=False, action='store_true', required=False, help='Developer mode.')
     return parser.parse_args()
 
 
-def load_correlations(Options):
-    """
-    loads correlation dataframe
-    :return:
-    """
-    # COEXPRESSION
-    gizmos.print_milestone('Loading coexpression...', Options.verbose)
-    correlation_df = pd.read_csv(Options.correlation, index_col=None)
-    correlation_df = correlation_df.rename(columns={correlation_df.columns[0]: 'ms_name',
-                                                    correlation_df.columns[1]: 'gene',
-                                                    correlation_df.columns[2]: 'correlation',
-                                                    correlation_df.columns[3]: 'P'})
-
-
-    if not Options.corr_cutoff == 0:
-        correlation_df = correlation_df[abs(correlation_df['correlation']) >= Options.corr_cutoff]
-    if not Options.corr_p_cutoff == 1:
-        correlation_df = correlation_df[abs(correlation_df['P']) <= Options.corr_p_cutoff]
-
-    return correlation_df
-
-
-def load_enzyme_input(Options):
+def load_enzyme_input(Options, mg_dict):
     """
     loads gene annotations, pfam-RR relationship file, and correlation and merges them.
-    :return:
+    
+    Pseudopipeline
+    ---------------
+    1. gene annotation
+    2. RR df + PFAM annotation
+    3. Integrate gene annotation with RR + PFAM (coonect genes through PFAMs; so genes have general reactions attached)
+    4. Integrate correlations with RR + PFAM + genes
+    
+    :mg_dict: merged clusters files was converted in a dictionary format and passed here to generate correlation data frame
+
+    :return: merged data frame with information from RR + PFAM + transition + correlation
     """
     pfam_dict_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pfams_dict.csv')  # Acc,Name,Desc
 
@@ -79,20 +69,31 @@ def load_enzyme_input(Options):
     if Options.gene_annotation:
         gizmos.print_milestone('Loading gene annotations...', Options.verbose)
         annotations_df = pd.read_csv(Options.gene_annotation, index_col=None)
-
         annotations_df = annotations_df.rename(columns={annotations_df.columns[0]: 'gene', annotations_df.columns[1]: 'enzyme_pfams'})
-        enzyme_pfams_list = annotations_df.enzyme_pfams.apply(gizmos.pd_to_list, separator=';')
+        
+        # OLD
+        #enzyme_pfams_list = annotations_df.enzyme_pfams.apply(gizmos.pd_to_list, separator=';')
         # expand gene annotations so there's one pfam per line (but we keep the "pfam" annotation that have them all)
-        lens = [len(item) for item in enzyme_pfams_list]
-        new_df = pd.DataFrame({'gene': np.repeat(annotations_df.gene, lens), 'pfam_rule': np.concatenate(enzyme_pfams_list)})
+        #lens = [len(item) for item in enzyme_pfams_list]
+        #new_df = pd.DataFrame({'gene': np.repeat(annotations_df.gene, lens), 'pfam_rule': np.concatenate(enzyme_pfams_list)})
+
+        annotations_df['enzyme_pfams'] = annotations_df['enzyme_pfams'].str.split(',')
+        new_df = annotations_df.explode('enzyme_pfams').reset_index(drop=True)
 
         # Kumar 07/08/2022
         # This step generates a df with 3 columns
         # gene;enzyme_pfams;pfam_rule
         # It makes one gene - one pfam entry
-        annotations_df = pd.merge(annotations_df, new_df, how='outer')
+        
+        # OLD
+        #annotations_df = pd.merge(annotations_df, new_df, how='outer')
+        annotations_df = pd.merge(annotations_df, new_df, how="outer", on="gene")
+        annotations_df = annotations_df.rename(columns={annotations_df.columns[1]: 'enzyme_pfams', annotations_df.columns[2]: 'pfam_rule'})
+        annotations_df['enzyme_pfams'] = annotations_df['enzyme_pfams'].apply(lambda x: ','.join(map(str, x)))
 
-        del enzyme_pfams_list, new_df
+        # OLD
+        #del enzyme_pfams_list, new_df
+        del new_df
     else:
         annotations_df = pd.DataFrame()
 
@@ -107,23 +108,23 @@ def load_enzyme_input(Options):
         pfam_rules_df['reaction_id'] = pfam_rules_df.reaction_id.astype('str')
 
         # filter type of anotations (strict, medium, loose)
-        if Options.annotation_level == 'strict':
+        if Options.chemical_search_space == 'strict':
             pfam_rules_df = pfam_rules_df[pfam_rules_df.experimentally_validated]
-        elif Options.annotation_level == 'medium':
+        elif Options.chemical_search_space == 'medium':
             pfam_rules_df = pfam_rules_df[pfam_rules_df.experimentally_validated | pfam_rules_df.Pfam_ec_prediction]
         else:  # loose
             pass  # they are all there
 
         # convert pfam_acc to pfam
-        pfam_dict = pd.read_csv(pfam_dict_file, index_col=None)
+        gizmos.print_milestone('Loading PFAM dictionary...', Options.verbose)
+        pfam_dict = pd.read_csv(Options.pfam_dict, index_col=None)
         pfam_dict.index = pfam_dict.Acc.apply(lambda x: x.split('.')[0])  # Acc,Name,Desc
 
 
         # Kumar
-        # Check if the seprataer is working in this case
+        # Check if the seprater is working in this case
         # uniprot_enzyme_pfams_acc_list = pfam_rules_df.uniprot_enzyme_pfams_acc.apply(gizmos.pd_to_list, separator=' ')
         uniprot_enzyme_pfams_acc_list = pfam_rules_df.uniprot_enzyme_pfams_acc.apply(gizmos.pd_to_list, separator=';')
-        print(uniprot_enzyme_pfams_acc_list)
 
         pfam_rules_df['uniprot_enzyme_pfams_list'] = [[k for k in row if k in pfam_dict.index] for row in uniprot_enzyme_pfams_acc_list]
         pfam_rules_df['uniprot_enzyme_pfams'] = pfam_rules_df.uniprot_enzyme_pfams_list.apply(';'.join)
@@ -142,31 +143,45 @@ def load_enzyme_input(Options):
         pfam_rules_df = pd.DataFrame()
 
     # CORRELATION
-    if Options.correlation:
-        correlation_df = load_correlations(Options)
-    else:
-        correlation_df = pd.DataFrame()
+    gizmos.print_milestone('Generating correlation table...', Options.verbose)
+    corr_columns = ['metabolite', 'gene', 'correlation', 'P']
+    correlation_df = gizmos.import_from_sql(Options.sqlite_db_name, Options.sqlite_corr_tablename, corr_columns, conditions = mg_dict, structures = False, clone = False)
 
     # MERGE
-    if Options.gene_annotation and Options.pfam_RR_annotation:
-        gizmos.print_milestone('Integrating gene annotations with reaction rules...', Options.verbose)
+    
+    # OLD
+    #if Options.gene_annotation and Options.pfam_RR_annotation:
+    #    gizmos.print_milestone('Integrating gene annotations with reaction rules...', Options.verbose)
 
-        merged_df = pd.merge(annotations_df, pfam_rules_df, how='inner')    # on pfam_rule
+    #    merged_df = pd.merge(annotations_df, pfam_rules_df, how='inner')    # on pfam_rule
 
-        del merged_df['pfam_rule']
+    #    del merged_df['pfam_rule']
         # now each rule has suspect genes
-    elif Options.pfam_RR_annotation:
-        merged_df = pfam_rules_df
-        del merged_df['pfam_rule']
-    else:
-        merged_df = pd.DataFrame()
+    #elif Options.pfam_RR_annotation:
+    #    merged_df = pfam_rules_df
+    #    del merged_df['pfam_rule']
+    #else:
+    #    merged_df = pd.DataFrame()
 
-    if Options.correlation:
-        gizmos.print_milestone('Integrating correlations with gene annotations and reaction rules...', Options.verbose)
-        merged_df = pd.merge(merged_df, correlation_df, how='inner', on='gene')    # on gene
+    correlation_df.to_csv("correlation_df.csv", index=False)
 
+    gizmos.print_milestone('Integrating gene annotations with reaction rules...', Options.verbose)
+    merged_df = pd.merge(annotations_df, pfam_rules_df, how='inner')    # on pfam_rule
+    del merged_df['pfam_rule']
+
+    merged_df.to_csv("gene_annotations_with_reaction_rules.csv", index=False)
+
+    #
+    gizmos.print_milestone('Integrating correlations with gene annotations and reaction rules...', Options.verbose)
+    merged_df = pd.merge(merged_df, correlation_df, how='inner')    # on gene
+
+    merged_df.to_csv("correlations_gene_annotations_with_reaction_rules.csv", index=False)
+
+    #
     gizmos.print_milestone('Duplicate cleanup...', Options.verbose)
     merged_df = merged_df.drop_duplicates()         # annotations_df merge produces duplicates due to pfam_rule
+
+    merged_df.to_csv("correlations_gene_annotations_with_reaction_rules_drop_duplicates.csv", index=False)
 
     return merged_df
 
@@ -180,9 +195,13 @@ def load_and_merge_rules_and_transitions(base_smarts_id):
     # ms,substrate,product,reaction_id,mass_transition_round,mass_transition,substrate_id,substrate_mnx_id,
     # substrate_mm,product_id,product_mnx_id,product_mm
     gizmos.print_milestone('Loading transitions...', Options.verbose)
-    transitions_df = pd.read_csv(Options.transitions_matches, index_col=None, dtype={'reaction_id': str,
-                                                                                          'substrate_id': str,
-                                                                                          'product_id': str})
+    
+    transition_columns = ['substrate', 'product', 'reaction_id', 'mass_transition_round', 'mass_transition', 'substrate_id', 'substrate_mnx_id', 'substrate_mm', 'product_id', 'product_mnx_id', 'product_mm']
+    transitions_df = gizmos.import_from_sql(Options.sqlite_db_name, Options.sqlite_transition_tablename, transition_columns, conditions = {}, structures = False, clone = False)
+
+    new_data_types = {'reaction_id': str,'substrate_id': str,'product_id': str}
+    transitions_df = transitions_df.astype(new_data_types)
+    
     transitions_df['reaction_substrate'] = transitions_df.reaction_id + '_' + transitions_df.substrate_id
     if 'substrate' in transitions_df.columns and 'product' in transitions_df.columns:
         Options.use_metabolomics = True
@@ -238,7 +257,7 @@ def load_and_merge_rules_and_transitions(base_smarts_id):
     return rt_df, base_rules_df
 
 
-def load_input():
+def load_input(mg_dict):
     """
     loads map, rules, transitions, and enzyme and correlation info if provided.
     :return:
@@ -247,36 +266,43 @@ def load_input():
     # smarts_id, smarts_is_in, smarts_has, identity, representative_smarts, is_base
     gizmos.print_milestone('Loading map...', Options.verbose)
     map_df = pd.read_csv(Options.RR_reaction_map, index_col=None, dtype={'is_base': bool})
+    
     # # # convert to set
     map_df['smarts_is_in'] = map_df.smarts_is_in.apply(gizmos.pd_to_set, separator=';')
     map_df['smarts_has'] = map_df.smarts_has.apply(gizmos.pd_to_set, separator=';')
     map_df['identity'] = map_df.identity.apply(gizmos.pd_to_set, separator=';')
+    
+    #??????
     base_smarts_id = map_df.smarts_id[map_df.is_base]
 
     rt_df, base_rules_df = load_and_merge_rules_and_transitions(base_smarts_id)
 
+    rt_df.to_csv("transition_and_rules.csv", index=False)
+
     # Kumar
     # 15/09/2022
+    if Options.pfam_RR_annotation and Options.gene_annotation:
+        
+        enzyme_df = load_enzyme_input(Options, mg_dict)
 
-    if Options.pfam_RR_annotation and Options.gene_annotation and Options.correlation:
-        enzyme_df = load_enzyme_input(Options)
+        #merge on reaction_id and ms_substrate/product
+        subs_corr_df = pd.merge(rt_df, enzyme_df.rename(columns={'metabolite': 'ms_substrate',
+                                                                 'correlation': 'correlation_substrate',
+                                                                 'P': 'P_substrate'}), how='inner')
+        prod_corr_df = pd.merge(rt_df, enzyme_df.rename(columns={'metabolite': 'ms_product',
+                                                                 'correlation': 'correlation_product',
+                                                                 'P': 'P_product'}), how='inner')
 
-        enzyme_df_subs = enzyme_df.rename(columns={'ms_name': 'ms_substrate', 'correlation': 'correlation_substrate', 'P': 'P_substrate'})
-        enzyme_df_prod = enzyme_df.rename(columns={'ms_name': 'ms_substrate', 'correlation': 'correlation_product', 'P': 'P_product'})
-
-        # merge on reaction_id, gene, and ms_substrate/product
-        subs_corr_df = pd.merge(rt_df, enzyme_df_subs, on='reaction_id', how='inner')
-        prod_corr_df = pd.merge(rt_df, enzyme_df_prod, on='reaction_id', how='inner')
-
+        
         # Here, results may include same rule-gene-coexp data, but through different RR_enzyme annotation
         rt_df = pd.merge(subs_corr_df, prod_corr_df, how='outer')  # outer allows for unilateral coexpression
-        print(rt_df)
         
         # Now we use the allowed transitions to clean the map by removing requirements that are not in the allowed list
         # for this, we remove smarts_id from smarts_has
         allowed_smarts_id = set(rt_df.smarts_id)
         map_df['smarts_has'] = map_df.smarts_has.apply(lambda x: x.intersection(allowed_smarts_id))
 
+        rt_df.to_csv("transition_merged_correlation_PFAM_reaction.csv", index=False)
 
     return rt_df, map_df, base_rules_df
 
@@ -395,7 +421,7 @@ def output_reactions(steps_df):
 
 
     # ENZYME SUPPORT
-    if Options.pfam_RR_annotation and Options.gene_annotation and Options.correlation:
+    if Options.pfam_RR_annotation and Options.gene_annotation:
         # OUTPUT DATA WITH ENZYMES
         if not steps_df.empty:
             if not os.path.exists(Options.reactions_output):
@@ -431,7 +457,6 @@ def get_dfs_for_metabolite(cur_structure_id, structures_df, rt_df, map_df, base_
 
     cur_structure_df = structures_df[structures_df.predicted_substrate_id == cur_structure_id]
 
-
     if Options.use_metabolomics:
         rxn_df = rt_df.rename(columns={'ms_substrate_x': 'ms_substrate'})
         rxn_df = pd.merge(rxn_df, cur_structure_df)  # on ms_substrate
@@ -452,7 +477,8 @@ def get_dfs_for_metabolite(cur_structure_id, structures_df, rt_df, map_df, base_
     metabolite_base_rules_df = metabolite_base_rules_df[['smarts_id', 'rxn_smarts', 'rxn']].drop_duplicates()
     metabolite_base_rules_df = pd.concat([metabolite_base_rules_df, base_rules_df], sort=True)
 
-
+    
+    rxn_df.to_csv("rxn_df.csv", index=False)
     return rxn_df, metabolite_map_df, metabolite_base_rules_df
 
 
@@ -481,13 +507,19 @@ def check_direction(row):
     return row
 
 
-def load_structures(fname):
+def load_structures(mg_dict):
+    
     # STRUCTURES
     # [ms_name], structure_id, structure_mm, SMILES, [InChI], [reacted], [root]
     gizmos.print_milestone('Loading structures...', Options.verbose)
 
-    structures_df = pd.read_csv(fname, index_col=None)
-    if len(structures_df.columns.intersection({'ms_name', 'ms_substrate'})):
+    # LOAD STRUCTURES
+    # loads queryMassLotus ourput file
+    structures_columns = ['metabolite', 'lotus_id', 'molecular_weight', 'smiles']
+    structures_df = gizmos.import_from_sql(Options.sqlite_db_name, Options.sqlite_metabolite_tablename, structures_columns, conditions = mg_dict, structures = True)
+
+
+    if len(structures_df.columns.intersection({'metabolite', 'ms_substrate'})):
         structures_df.rename(columns={structures_df.columns[0]: 'ms_substrate',
                                       structures_df.columns[1]: 'predicted_substrate_id',
                                       structures_df.columns[2]: 'predicted_substrate_mm',
@@ -527,7 +559,7 @@ def load_structures(fname):
     if not Options.use_substrate_mm:
         structures_df['predicted_substrate_mm'] = structures_df.predicted_substrate_mol.apply(gizmos.get_mm_from_mol, is_smarts=False)
 
-    # Loop preparation
+    # Loop preparation ***** predicted_substrate_id is actually being added here as root
     if 'reacted' not in structures_df:
         structures_df['reacted'] = False
     if 'root' not in structures_df:
@@ -561,8 +593,6 @@ def update_reactions_with_product_id(reactions_df, structures_list):
     fresh_structures_df = reactions_df.predicted_product_smiles.unique()
     fresh_structures_df = pd.DataFrame({'predicted_product_smiles': fresh_structures_df})
     fresh_structures_df = pd.merge(fresh_structures_df, structures, on="predicted_product_smiles", how='left')
-    print(fresh_structures_df)
-    print(fresh_structures_df.columns)
 
     # ++ predicted_product_id, predicted_product_mol     => old structures identified. new have None
 
@@ -587,10 +617,14 @@ def update_reactions_with_product_id(reactions_df, structures_list):
     # get fully annotated new structures
     fresh_structures_df = get_new_structures(updated_reactions_df)
 
+    updated_reactions_df.to_csv("updated_reactions_df.csv", index=False)
+    fresh_structures_df.to_csv("fresh_structures_df.csv", index=False)
+
     return updated_reactions_df, fresh_structures_df
 
 
 def get_new_structures(reactions_df):
+    
     if Options.use_metabolomics:
         fresh_structures_df = reactions_df[['ms_product', 'predicted_product_id', 'predicted_product_smiles',
                                             'predicted_product_mm', 'predicted_product_mol', 'root']].drop_duplicates()
@@ -625,10 +659,12 @@ def react_cur_structure(cur_structure_id, structures_df, rt_df, map_df, base_rul
     else:
         process_results_df = gizmos.query_filtered_rxn_db(rxn_df, cur_map_df, cur_base_rules_df, Options)
 
+        process_results_df.to_csv("process_results_df.csv", index=False)
+
         return process_results_df
 
 
-def reaction_loop(rt_df, map_df, base_rules_df):
+def reaction_loop(rt_df, map_df, base_rules_df, mg_dict):
     """
     Main function that reacts structures and merges with enzyme data iteratively.
     :return:
@@ -656,15 +692,12 @@ def reaction_loop(rt_df, map_df, base_rules_df):
             output_reactions(updated_process_results_df)
         return
 
-    # LOAD STRUCTURES
-    # loads queryMassNPDB ourput file
-    structures_file = Options.structure_predictions_matches
-
-    # QueryMASSNPDB generates two types of file 1: ms_name, mz, mm 2. ms_name, structure_id, mm, smiles
+    # Kumar
+    # QueryMASSLotus generates two types of file 1: metabolite, mz, molecular_weight 2. metabolite, lotus_id, molecular_weight, smiles
     # load_structure() takes file 2, rename the columns in to [ms_substrate, predicted_substrate_id, predicted_substrate_mm, predicted sustrate_smiles]
     # then generates mol from smiles using RDKit, also recalculate smiles (to validate) from generated mol using RDkit and lastly add two columns
     # "reacted" and "root". Root is similar to structure_id/predicted_substrate_id
-    structures_df = load_structures(structures_file)
+    structures_df = load_structures(mg_dict)
 
     # next function gathers the followng three columns from the structures df and returns a list of values.
     # [predicted_substrate_id', 'predicted_substrate_smiles', 'predicted_substrate_mol'] i.e. substrate structure list with smiles
@@ -689,6 +722,7 @@ def reaction_loop(rt_df, map_df, base_rules_df):
         # GENERATE VIRTUAL PRODUCTS
         gizmos.print_milestone(str(n_structures_initial) + ' structures will be reacted.', Options.verbose)
         gizmos.print_milestone('Generating products...', Options.verbose)
+        
         if Options.dev:
             for cur_structure_id in structures_to_react:
                 process_results(react_cur_structure(cur_structure_id, structures_df, rt_df, map_df, base_rules_df), structures_list)
@@ -715,6 +749,7 @@ def reaction_loop(rt_df, map_df, base_rules_df):
             # Get structures of next iter and identify previously reacted ms_structure pairs
             next_iter_structures = pd.concat(next_iter_structures).drop_duplicates()
             next_iter_structures = pd.merge(next_iter_structures, reacted_ms_structures, how='outer') 
+            
             # Adds False to the empty 'reacted' column
             next_iter_structures.loc[next_iter_structures.reacted.isna(), 'reacted'] = False
 
@@ -772,6 +807,18 @@ def reaction_loop(rt_df, map_df, base_rules_df):
 def main():
     # global rt_df, map_df, base_rules_df
 
+
+    meregd_clusters_df = pd.read_csv(Options.merged_clusters_file, index_col='id', delimiter=',', quotechar='"')
+    temp = meregd_clusters_df.to_dict(orient='list')
+
+    # The temp has a dictionary structure but the values are present as string and not as 
+    # individual elements.
+    mg_dict = {}
+    for key, values in temp.items():
+        new_key = key[:-1]  # Remove the trailing 's' from the key
+        new_values = [item.strip() for value in values for item in value.split(',')]  # Split and flatten the values
+        mg_dict[new_key] = new_values
+
     # OUTPUT INIT
     Options.log_file = os.path.join(Options.output_folder, 'log.txt')
     gizmos.log_init(Options)
@@ -790,10 +837,10 @@ def main():
     # RR_substrate_smarts, RR_product_smarts, reaction_substrate
     # MAP
     # smarts_id, smarts_is_in, smarts_has, identity, representative_smarts, is_base
-    rt_df, map_df, base_rules_df = load_input()
+    rt_df, map_df, base_rules_df = load_input(mg_dict)
 
     # REACTION LOOP
-    reaction_loop(rt_df, map_df, base_rules_df)
+    reaction_loop(rt_df, map_df, base_rules_df, mg_dict)
 
     # target:
     # [transitions]   ms_substrate, ms_product, expected_mass_transition_ms

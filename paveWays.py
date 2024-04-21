@@ -9,6 +9,7 @@ import argparse
 import re
 import pandas as pd
 import networkx as nx
+import matplotlib.pyplot as plt
 from rdkit import Chem
 from rdkit.Chem import Draw
 from rdkit.Chem.Draw import DrawingOptions
@@ -60,38 +61,6 @@ def get_structure_network(reactions_df):
     #DiGraph with 26 nodes and 25 edges
     return structures_network, structures_network_df
 
-# Kumar 30/11/2022
-# refactored the whole function
-# it was difficult to get to the exact return format with just structres_df file
-# Perhaps the problem was, instead of using reaction_df, the function was using structure_df
-# Because root/predicted_substrate_id and predicted_product_id are separate columns and just with
-# structures_df file it was not possible to extract smiles for the whole graph.
-def get_structure_network_attributes(root_id, structures_network, structures_df, reactions_df):
-    reaction_distance_df = pd.DataFrame.from_dict(nx.single_source_shortest_path_length(structures_network.to_undirected(), root_id), orient='index', columns=['root_distance'])
-    reaction_distance_mod_df = reaction_distance_df.reset_index().rename(columns={'index': 'nodes'})
-    list_index = list(reaction_distance_mod_df['nodes'])
-
-    #    root_distance
-    #NP_27475   0
-    #VM_7461151 1
-    #VM_1165316 1
-    #VM_4892322 1
-
-    reactions_df_mod = reactions_df.reset_index()
-    temp_df = reactions_df_mod[reactions_df_mod.isin(list_index).any(axis=1)]
-    substrate = temp_df[['predicted_substrate_id', 'predicted_substrate_smiles']].drop_duplicates('predicted_substrate_id').rename(columns={'predicted_substrate_id': 'predicted_id', 'predicted_substrate_smiles': 'predicted_smiles'})
-    substrate['predicted_mm'] = substrate.predicted_smiles.apply(gizmos.get_mm_from_str, is_smarts=True)
-    product = temp_df[['predicted_product_id', 'predicted_product_smiles']].drop_duplicates('predicted_product_id').rename(columns={'predicted_product_id': 'predicted_id', 'predicted_product_smiles': 'predicted_smiles'})
-    product['predicted_mm'] = product.predicted_smiles.apply(gizmos.get_mm_from_str, is_smarts=True)
-    structures_attributes_df = pd.concat([substrate, product], ignore_index=True)
-    structures_attributes_dist_df = pd.merge(reaction_distance_mod_df, structures_attributes_df, how="left", left_on='nodes', right_on='predicted_id')
-    structures_attributes_dist_df = structures_attributes_dist_df.drop(columns="nodes")
-    structures_attributes_dist_df = structures_attributes_dist_df[['predicted_id', 'predicted_smiles', 'predicted_mm', 'root_distance']]
-    #print(structures_attributes_dist_df)
-    #       predicted_id predicted_smiles predicted_mm root_distance
-    #   0   NP_152307 CCCCCCCCC=CCCCCCCCCCCCC(=O)OCC(COP(=O)(O)OCCN)... 855.67 0
-    #   1   VM_4516106 CCCCCCCCC=CCCCCCCCCCCCC(=O)OC(COC(=O)CCCCCCCCC... 857.69 1
-    return structures_attributes_dist_df
 
 # Kumar
 # Provides info on genes correlated with substrate, product, and both.
@@ -107,6 +76,15 @@ def get_structure_network_edge_info(cur_edge, df):
         df[substrate_mask & product_mask].dropna(subset=['correlation_substrate', 'correlation_product']))
 
     return cur_edge
+
+
+def get_structure_network_attributes(root_id, structures_network, structures_df):
+    temp_df = structures_df.set_index('predicted_substrate_id')
+    reaction_distance_df = pd.DataFrame.from_dict(nx.single_source_shortest_path_length(structures_network.to_undirected(), root_id), orient='index', columns=['root_distance'])
+    structures_attributes_df = pd.merge(temp_df, reaction_distance_df, left_index=True, right_index=True)
+    structures_attributes_df.reset_index(inplace=True)
+    structures_attributes_df.rename(columns={'index': 'predicted_id', 'predicted_substrate_mm':'predicted_mm', 'predicted_substrate_smiles': 'predicted_smiles'}, inplace=True)
+    return structures_attributes_df
 
 # Kumar 30/11/2022
 # Instead of structures_df, it makes more sense to use cur_structure_attributes_df
@@ -350,15 +328,6 @@ def get_rooted_semiforward_network(structure_network_df, structures_attributes_d
     return semiforward_network
 
 
-
-#def check_for_similar_structures(cur_root_structures, reactions_df):
-
-#    for mol in cur_root_structures:
-
-
-
-
-
 #################
 # MAIN PIPELINE #
 #################
@@ -380,8 +349,8 @@ def main():
     if 'predicted_substrate_mm' not in structures_df:
         structures_df['predicted_substrate_mm'] = structures_df.predicted_substrate_smiles.apply(gizmos.get_mm_from_str,
                                                                                                  is_smarts=False)
-    if not Options.reactions or Options.print_all_molecules:
-        structures_df.apply(print_svg_molecules, path=Options.svg_folder, axis=1)
+    #if not Options.reactions or Options.print_all_molecules:
+    #    structures_df.apply(print_svg_molecules, path=Options.svg_folder, axis=1)
 
     if Options.reactions:
         gizmos.print_milestone('Loading reactions...', Options.verbose)
@@ -412,21 +381,33 @@ def main():
         else:
             gizmos.print_milestone('Generating networks...', Options.verbose)
             
-            #Temp step.....
-            #gizmos.print_milestone('Reading full structure network file...', Options.verbose)
-            #temp = glob.glob("paveWays2_HB/full_structure_network.csv", recursive = True)  
-            #structure_network_df = pd.read_csv(temp[0])
-            
             structures_network, structure_network_df = get_structure_network(reactions_df)
             fname = os.path.join(Options.output_folder, 'full_structure_network.csv')
-            structure_network_df.to_csv(fname, index=False)
+            #structure_network_df.to_csv(fname, index=False)
 
+            #nx.draw(structures_network, with_labels=True)
+            #plt.show()
+            
             # SUB NETWORKS
             subnetworks = [n for n in nx.connected_components(structures_network.to_undirected())]
-            #[{'VM_7461151', 'VM_1165316', 'VM_4892322', 'VM_5652708', 'VM_3107397', 'VM_6273288', 'VM_5644221',
-            #  'VM_9695712', 'VM_7035106', 'VM_4499937', 'VM_9685322', 'VM_3137934', 'VM_9281486', 'VM_9084708',
-            #  'VM_2467910', 'NP_27475', 'VM_8404030', 'VM_1131123', 'VM_0250301', 'VM_8571400', 'VM_9056664',
-            #  'VM_6949297', 'VM_1102502', 'VM_3814819', 'VM_0881670', 'VM_6981634'}]
+            
+            #for component in nx.connected_components(structures_network.to_undirected()):
+                
+            #    print("#### subnetwork ####")
+            #    print(component)
+            #    subgraph = structures_network.subgraph(component)
+            #    nx.draw(subgraph, with_labels=True, node_color='green', edge_color="gray", node_size=50)
+            #    plt.show()
+            #    print("\n")
+            
+            ##  A connected component is a subset of nodes where:
+            ##   1. Every node in the subset has a path to every other node
+            ##   2. No node outside the subset has a path to a node in the subset
+            ## Something like this, multiple connected components:
+            ##  {'J', 'I', 'G', 'H', 'F'}
+            ##   {'N', 'M', 'O', 'K', 'L'}
+            ##   {'D', 'B', 'C', 'E', 'A'}
+
             subnetworks_dict = dict()
             for sub_idx, cur_sub in enumerate(subnetworks):
                 for node in cur_sub:
@@ -441,44 +422,45 @@ def main():
 
                 # GET NETWORK COMPONENT WITH ROOT
                 cur_root_structures = subnetworks[subnetworks_dict[cur_root]]
-
-                print("###This is current root structures###")
-                print(cur_root_structures)
-                
                 cur_root_structures_network = structures_network.subgraph(cur_root_structures)
-
-                print("###This is current root structures Network###")
-                print(cur_root_structures_network)
 
 
                 # GET ROOT-SPECIFIC DATA
-                cur_root_structures_df = structures_df[structures_df.index.isin(cur_root_structures)].copy()
-                #cur_root_structures_df = structures_df[structures_df['root'].isin(cur_root_structures)]
-
+                # Kumar
+                # Structures_df is indexed with substrate_id and not the predicted molecules ??????
+                #cur_root_structures_df = structures_df[structures_df.index.isin(cur_root_structures)].copy()
+                cur_root_structures_df = structures_df[structures_df['root'].isin(cur_root_structures)]
+                #cur_root_structures_df.to_csv("cur_root_structures_df.csv", index=False)
                 subs_mask = structure_network_df.predicted_substrate_id.isin(cur_root_structures)
-
                 prod_mask = structure_network_df.predicted_product_id.isin(cur_root_structures)
-
                 cur_root_structures_network_df = structure_network_df[subs_mask & prod_mask]
+                
+                # Kumar
+                # Feb 2024
+                # adds edge score and avg. edge weights properties of each reactant
+                cur_root_structures_network_df['gene_support'] = cur_root_structures_network_df.apply(gizmos.count_edge_support_summary, axis=1)
+                cur_root_structures_network_df['avg_subs_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_means_for_substrate_and_product, df=reactions_df, substrate=True, axis=1)
+                cur_root_structures_network_df['avg_prod_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_means_for_substrate_and_product, df=reactions_df, substrate=False, axis=1)
+
 
                 # PREPARE STRUCTURES
-                # WHY ?? This value is always 0 - Kumar (28/11/2022)
-                #cur_root_structures_df['root_mm'] = cur_root_structures_df.predicted_substrate_mm.loc[cur_root]
+                # Not sure why Hern used root values as indexers directly
+                # Also what is the scope of the following 3 lines.
+                # WHY ?? This value is always 0 - Kumar (28/11/2022) 
+                #cur_root_structures_df.reset_index(drop=True, inplace=True)
                 
-                # Kumar 
-                # Indexing issue
-                #cur_root_structures_df['root_mm'] = cur_root_structures_df.set_index('root').loc[cur_root, 'predicted_substrate_mm']
-
+                #cur_root_structures_df['root_mm'] = cur_root_structures_df.predicted_substrate_mm.loc[cur_root]
                 #cur_root_structures_df['root_mm'] = cur_root_structures_df.loc[cur_root_structures_df['root'] == cur_root, 'predicted_substrate_mm']
-
                 #cur_root_structures_df['root_mm_diff'] = cur_root_structures_df.predicted_substrate_mm - cur_root_structures_df.root_mm
                 #cur_root_structures_df['root_mm_diff_abs'] = cur_root_structures_df.root_mm_diff.apply(abs)
 
+
                 # GET STRUCTURE NETWORK ATTRIBUTES
-                cur_root_structures_attributes_df = get_structure_network_attributes(cur_root, cur_root_structures_network, structures_df, reactions_df)
+                #cur_root_structures_attributes_df = get_structure_network_attributes(cur_root, cur_root_structures_network, structures_df, reactions_df)
+                cur_root_structures_attributes_df = get_structure_network_attributes(cur_root, cur_root_structures_network, structures_df)
+                cur_root_structures_attributes_df = cur_root_structures_attributes_df.drop_duplicates(subset=['predicted_id', 'root', 'root_distance'])
+                #cur_root_structures_attributes_df.to_csv("cur_root_structures_attributes_df_dedup.csv", index=False)
 
-
-                
                 # OUTPUT
                 fname = os.path.join(cur_root_out_folder, 'structure_network.csv')
                 cur_root_structures_network_df.to_csv(fname, index=False)
@@ -492,9 +474,29 @@ def main():
                 # This step is not adding new information to the final out put. So purged at the moment.
                 #semiforward_network = get_rooted_semiforward_network(cur_root_structures_network_df, cur_root_structures_attributes_df)
 
+                # Detect and remove cycles
+                def remove_cycles(graph):
+                    cycles = list(nx.simple_cycles(graph))
+                    if cycles:
+                        cycle = cycles[0]
+                        gizmos.print_milestone(f'Cycle found: {cycle}', Options.verbose)
+                        # If a cycle is found, remove one edge from the cycle
+                        edge_to_remove = (cycle[0], cycle[1])
+                        graph.remove_edge(*edge_to_remove)
+                        gizmos.print_milestone(f'Edge removed: {edge_to_remove}', Options.verbose)
+                    else:
+                        gizmos.print_milestone("No cycles found.", Options.verbose)
+
                 # MAKE DAG
-                root_dag_structures_network = gizmos.get_dag_from_structures_network(cur_root_structures_network, cur_root_structures_attributes_df)
+                root_dag_structures_network = gizmos.get_dag_from_structures_network(cur_root_structures_network, cur_root_structures_attributes_df)  
+                
+                #while True:
+                #    remove_cycles(root_dag_structures_network)
+                #    if not list(nx.simple_cycles(root_dag_structures_network)):
+                #        break
+
                 longest_path = nx.dag_longest_path(root_dag_structures_network)  # list of nodes, ordered
+
 
                 # OUTPUT MOLECULE SVGs
                 print_all_pathways(longest_path, cur_root_structures_attributes_df, reactions_df, enzyme_df, structures_df, cur_root_out_folder)
@@ -508,3 +510,28 @@ if __name__ == "__main__":
     Options.correlation_file = ''
     Options.svg_folder = os.path.join(Options.output_folder, 'molecules/')
     main()
+
+
+    ##### Remove ######
+# Kumar 30/11/2022
+# refactored the whole function
+# it was difficult to get to the exact return format with just structres_df file
+# Perhaps the problem was, instead of using reaction_df, the function was using structure_df
+# Because root/predicted_substrate_id and predicted_product_id are separate columns and just with
+# structures_df file it was not possible to extract smiles for the whole graph.
+def get_structure_network_attributes_temp(root_id, structures_network, structures_df, reactions_df):
+    reaction_distance_df = pd.DataFrame.from_dict(nx.single_source_shortest_path_length(structures_network.to_undirected(), root_id), orient='index', columns=['root_distance'])
+    reaction_distance_mod_df = reaction_distance_df.reset_index().rename(columns={'index': 'nodes'})
+    list_index = list(reaction_distance_mod_df['nodes'])
+    reactions_df_mod = reactions_df.reset_index()
+    temp_df = reactions_df_mod[reactions_df_mod.isin(list_index).any(axis=1)]
+    substrate = temp_df[['predicted_substrate_id', 'predicted_substrate_smiles']].drop_duplicates('predicted_substrate_id').rename(columns={'predicted_substrate_id': 'predicted_id', 'predicted_substrate_smiles': 'predicted_smiles'})
+    substrate['predicted_mm'] = substrate.predicted_smiles.apply(gizmos.get_mm_from_str, is_smarts=True)
+    product = temp_df[['predicted_product_id', 'predicted_product_smiles']].drop_duplicates('predicted_product_id').rename(columns={'predicted_product_id': 'predicted_id', 'predicted_product_smiles': 'predicted_smiles'})
+    product['predicted_mm'] = product.predicted_smiles.apply(gizmos.get_mm_from_str, is_smarts=True)
+    structures_attributes_df = pd.concat([substrate, product], ignore_index=True)
+    structures_attributes_dist_df = pd.merge(reaction_distance_mod_df, structures_attributes_df, how="left", left_on='nodes', right_on='predicted_id')
+    structures_attributes_dist_df = structures_attributes_dist_df.drop(columns="nodes")
+    structures_attributes_dist_df = structures_attributes_dist_df[['predicted_id', 'predicted_smiles', 'predicted_mm', 'root_distance']]
+    return structures_attributes_dist_df
+#####################

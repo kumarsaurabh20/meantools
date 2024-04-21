@@ -101,6 +101,24 @@ def apply_MAD_filter(df):
     return df_filtered
 
 
+def export_(conn, tablename):
+
+    # output sqlite tables with FCs so that association strengths can be computed between different FCs
+    query = f'SELECT * FROM {tablename}'
+    df = pd.read_sql_query(query, conn)
+    
+    # Specify the directory
+    directory = 'cluster_fingerprinting'
+
+    # Create the directory if it doesn't exist
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # Save the DataFrame to a CSV file in the specified directory
+    csv_file = os.path.join(directory, '{}.csv'.format(tablename))
+    df.to_csv(csv_file, index=False)
+
+
 
 def main(Options):
 
@@ -129,9 +147,6 @@ def main(Options):
     common_labels = sorted(list(transcripts_labels.intersection(metabolites_labels)))
     transcripts_df = transcripts_df[common_labels]
     metabolites_df = metabolites_df[common_labels]
-
-    print(transcripts_df)
-    print(metabolites_df)
     
     # Kumar 2nd Jan 2022
     # Manager class to make all process share the global variables.
@@ -149,11 +164,11 @@ def main(Options):
     pool.join()
 
     results_df = pd.concat(results).reset_index(drop=True)
-    print(results_df)
+    results_df.to_csv("PAL_correlations.csv", index=False)
+    
     gizmos.print_milestone('Writing correlations to the database...', Options.verbose)
-    #
-    conn = sqlite3.connect(Options.sqlite_db_name)
-    results_df.to_sql(Options.sqlite_table_name, conn, if_exists="append", index=False)
+    
+    gizmos.export_to_sql(Options.sqlite_db_name, results_df, Options.sqlite_table_name, index = False)
 
     if Options.mutual_rank and Options.method != "spearman":   
         gizmos.print_milestone('Calculating mutual rank statistic...', Options.verbose)
@@ -166,7 +181,8 @@ def main(Options):
         #
         edges_df = mutual_ranks.get_MR_from_correlations(results_df, all_objects)
         tablename = Options.sqlite_table_name + "_MR_edges"
-        edges_df.to_sql(tablename, conn, if_exists="append", index=False)
+        #edges_df.to_sql(tablename, conn, if_exists="append", index=False)
+        gizmos.export_to_sql(Options.sqlite_db_name, edges_df, tablename, index = False)
         
         #        
         # Kumar
@@ -178,12 +194,13 @@ def main(Options):
             
                 weights_df = mutual_ranks.get_weight_from_MR(edges_df, Options.edge_weight_cutoff, d)
                 
-                tablename = Options.sqlite_table_name + "_MR_weights" + "_DR={}".format(d)
+                tablename = Options.sqlite_table_name + "_MR_weights" + "_DR_{}".format(d)
                 
-                Options.weightsfile = os.path.join(script, 'sim_weights_DR={}_file.csv'.format(d))
+                Options.weightsfile = os.path.join(script, 'sim_weights_DR_{}_file.csv'.format(d))
                 
                 print('Writing mutual ranks with decay rate of {} to the database...'.format(d))
-                weights_df.to_sql(tablename, conn, if_exists="append", index=False)
+                #weights_df.to_sql(tablename, conn, if_exists="append", index=False)
+                gizmos.export_to_sql(Options.sqlite_db_name, weights_df, tablename, index = False)
                 del weights_df['MR']
                 
                 # Write the weights data to a file to be read later by ClusterOne
@@ -192,15 +209,16 @@ def main(Options):
                 if Options.clusterone:
                     
                     Options.clusteronepath = os.path.join(script, 'cluster_one-1.0.jar')
-                    Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR={}.csv'.format(d))
+                    Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR_{}.csv'.format(d))
                     
                     print('Generating modules with the decay rate of {} using ClusterOne...'.format(d))
                     mutual_ranks.run_clusterone(Options.clusterone_outputfile, Options.clusteronepath, Options.weightsfile)
                     
                     # move the clusterOne output file data to the sqlite db
                     clone_out_df = pd.read_csv(Options.clusterone_outputfile)
-                    tablename = Options.sqlite_table_name + "_clone" + "_DR={}".format(d)
-                    clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+                    tablename = Options.sqlite_table_name + "_clone" + "_DR_{}".format(d)
+                    #clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+                    gizmos.export_to_sql(Options.sqlite_db_name, clone_out_df, tablename, index = False)
                     
                     # remove clusterone and weights file from the current folder
                     os.remove(Options.clusterone_outputfile)
@@ -218,24 +236,29 @@ def main(Options):
             tablename = Options.sqlite_table_name + "_MR_weights"
             Options.weightsfile = os.path.join(script, 'sim_weights_file.csv')
             gizmos.print_milestone('Writing mutual ranks to the database...', Options.verbose)
-            weights_df.to_sql(tablename, conn, if_exists="append", index=False)
+            #weights_df.to_sql(tablename, conn, if_exists="append", index=False)
+            gizmos.export_to_sql(Options.sqlite_db_name, weights_df, tablename, index = False)
             del weights_df['MR']
             weights_df.to_csv(Options.weightsfile, index=False, header=False, sep=' ') 
-
-
-            # if clusterone is set as True, clusterone will create modules using the edges information
+        
             if Options.clusterone:
                 Options.clusteronepath = os.path.join(script, 'cluster_one-1.0.jar')
-                Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR={}.csv'.format(Options.decay_rate))
+                Options.clusterone_outputfile = os.path.join(script, 'clusterOne_DR_{}.csv'.format(Options.decay_rate))
                 gizmos.print_milestone('Generating modules by clustering genes and metabolites using ClusterOne...', Options.verbose)
                 mutual_ranks.run_clusterone(Options.clusterone_outputfile, Options.clusteronepath, Options.weightsfile)
                 clone_out_df = pd.read_csv(Options.clusterone_outputfile)
                 tablename = Options.sqlite_table_name + "_clone"
-                clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+                #clone_out_df.to_sql(tablename, conn, if_exists="append", index=False)
+                gizmos.export_to_sql(Options.sqlite_db_name, clone_out_df, tablename, index = False)
+                # remove the physical files (these are space-delimited files)
                 os.remove(Options.clusterone_outputfile)
                 os.remove(Options.weightsfile)
 
-    conn.close()
+
+
+
+
+
 
 if __name__ == "__main__":
     

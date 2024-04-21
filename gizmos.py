@@ -4,11 +4,13 @@ import re
 import numpy as np
 import pandas as pd
 import networkx as nx
+import matplotlib.pyplot as plt
 import itertools as it
 from rdkit.Chem import AllChem as Chem
 from rdkit.Chem import Descriptors
 from rdkit.Chem.FragmentMatcher import FragmentMatcher
 from rdkit import rdBase
+import sqlite3
 
 
 # input requires a numpy series
@@ -104,6 +106,84 @@ def plot_annotations(fig, orig_ax, n_ticks, ticks_labels):
     ann_ax.set_yticklabels(ticks_labels, minor=True)  # makes minor yticks labels
 
     return fig
+
+
+def import_from_sql(sqlite_db_name, sqlite_tablename="", df_columns=[], conditions={}, structures = False, clone = False):
+
+    '''
+    This function imports data from a SQLite database. The data can be fetched using a tablename. 
+    Conditions is a dictionary here that has query elements. df_columns is a list of
+    columns that goes immediately with the SELECT clause and also with the returning dataframe columnames.
+
+    :param1 sqlite_db_name: Options object from the standard arguments block
+    :param2 sqlite_tablename: sqlite correlation tablename
+    :param3 conditions: example: conditions = {'gene': ['Solyc03g093590.1', 'Solyc11g008460.1', 'Solyc07g008140.2'], 'metabolite': ['M600T895', 'M274T851', 'M276T882']}
+    :param4 df_columns: list of column names that have to retrieved: [metabolite, gene, correlations, P]
+    :param5 structures: only enable when data from metabolite annotation table is required
+    :param6 clone: Only enable when data from clusterONE output is required
+    '''
+
+    if os.path.isfile(sqlite_db_name):
+        conn = sqlite3.connect(sqlite_db_name)
+    else:
+        raise FileNotFoundError("The {} file was not found! Did you run the correlation step first?".format(sqlite_db_name))
+
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect(sqlite_db_name)
+    
+    if clone == True:
+        
+        # Get a list of table names from the database
+        tables_query = "SELECT name FROM sqlite_master WHERE type='table';"
+        tables = conn.execute(tables_query).fetchall()
+
+        # Filter tables that contain the keyword "clone"
+        clone_tables = [table[0] for table in tables if 'clone' in table[0].lower()]
+
+        # Create a dictionary to store DataFrames
+        dfs = {}
+
+        # Loop through each clone table and fetch data into a DataFrame
+        for table_name in clone_tables:
+            query = f"SELECT * FROM {table_name};"
+            df = pd.read_sql_query(query, conn)
+            dfs[table_name] = df
+
+        return dfs
+
+    else:
+
+        if not bool(conditions):
+            query = f"SELECT {', '.join(df_columns)} FROM {sqlite_tablename};"
+        elif structures == True:
+            query = f"SELECT {', '.join(df_columns)} FROM {sqlite_tablename} WHERE metabolite IN {tuple(conditions['metabolite'])};"
+        else:
+            query = f"SELECT {', '.join(df_columns)} FROM {sqlite_tablename} WHERE {' AND '.join([f'{key} IN {tuple(conditions[key])}' for key in conditions])};"
+
+        # Execute the query and fetch the results
+        cursor = conn.cursor()
+        cursor.execute(query)
+        results = cursor.fetchall()
+
+        # Display or further process the extracted data
+        result_df = pd.DataFrame(results, columns=df_columns)
+
+        return result_df
+    
+    conn.close()
+
+
+def export_to_sql(database, df, tablename, index=False):
+
+    conn = sqlite3.connect(database)
+    #cursor = conn.cursor()
+    #if df.shape[0] > 5000:
+    #   cursor.execute("PRAGMA page_size = 15000;")
+
+    df.to_sql(tablename, conn, if_exists="append", index=index)
+    conn.close()
+    return
 
 
 def log_init(Options):
@@ -395,6 +475,7 @@ def filter_df_with_map(df, map_df, recent_smarts_passed, all_smarts_passed, all_
             identical_smarts = set.union(*identical_smarts)     # this expands list of sets into union set.
         else:
             identical_smarts = set()
+        
         # We update all_smarts_passed and tested
         recent_smarts_passed.update(identical_smarts)
         all_smarts_tested.update(recent_smarts_passed)
@@ -438,6 +519,7 @@ def query_filtered_rxn_db(rxn_df, map_df, base_rules_df, Options):
     recent_smarts_passed = set(cur_base_rules_df.smarts_id[rules_passed_mask])
 
     success_df = pd.DataFrame()
+    
     # Querying small rules
     while recent_smarts_passed:
         filtered_df = filter_df_with_map(rxn_df, map_df, recent_smarts_passed, all_smarts_passed, all_smarts_tested)
@@ -463,6 +545,7 @@ def query_filtered_rxn_db(rxn_df, map_df, base_rules_df, Options):
 
     # Querying all rules
     if not only_query_small:
+        
         # From all_smarts_passed we can find which reaction_substrates to query.
         smarts_ids_mask = rxn_df.smarts_id.isin(all_smarts_passed)
         reaction_substrates_to_query = rxn_df.reaction_substrate[smarts_ids_mask]
@@ -589,9 +672,33 @@ def df_to_graph(df, use_pd_graph):
     return G
 
 
+# This function gathers edge weight support for the network
+def get_means_for_substrate_and_product(row, df, substrate=True):
+
+    substrate_id = row['predicted_substrate_id']
+    product_id = row['predicted_product_id']
+
+    filtered_df = df[(df['predicted_substrate_id'] == substrate_id) & (df['predicted_product_id'] == product_id)]
+
+    # Convert empty strings in numeric columns to NaN
+    filtered_df[['correlation_substrate', 'P_substrate', 'correlation_product', 'P_product']] = \
+        filtered_df[['correlation_substrate', 'P_substrate', 'correlation_product', 'P_product']].apply(pd.to_numeric, errors='coerce')
+
+    if substrate:
+        mean_correlation_substrate = filtered_df['correlation_substrate'].mean()
+        return mean_correlation_substrate
+    else:
+        mean_correlation_product = filtered_df['correlation_product'].mean()
+        return mean_correlation_product
+
+
+
 def count_edge_support_summary(data):
+    
+    # use edge weights here from MR
     support = data['genes_corr_substrate'] + data['genes_corr_product']
     support -= 2 * data['genes_corr_both']
+
     return support
 
 
@@ -618,8 +725,7 @@ def get_dag_from_structures_network(structures_network, structures_attributes_df
     # Kumar
     # Try None instead of 2 nodes to clean cycles
     #edges_to_remove = get_cycle_edges_to_remove(structures_network, structures_attributes_df, None)
-    edges_to_remove = get_cycle_edges_to_remove(structures_network, structures_attributes_df, 3)
-
+    edges_to_remove = get_cycle_edges_to_remove(structures_network, structures_attributes_df, 2)
     dag = structures_network.copy()
     dag.remove_edges_from(edges_to_remove)
 
@@ -631,40 +737,70 @@ def get_dag_from_structures_network(structures_network, structures_attributes_df
 
 def get_cycle_edges_to_remove(G, structures_attributes_df, cycle_size=0):
     edges_to_remove = []
-    for cur_cycle_nodes in nx.simple_cycles(G):  # generator
+    
+    #nx.draw(G, with_labels=True, node_size=50)
+    #plt.show()
+
+    #structures_attributes_df_indexed = structures_attributes_df.set_index('root')
+
+    for cur_cycle_nodes in nx.simple_cycles(G):  # generator; iterates over all cycles in the graph
+        
+        print(f"This is cur_cycle_nodes {cur_cycle_nodes}")
+
         if not cycle_size or len(cur_cycle_nodes) == cycle_size:
             edges_to_break_cycle = []
             cycle_supports = {}
 
             for substrate, product in get_edges_from_nodes(cur_cycle_nodes):
-                
-                
+
+                print(f"This is substrate: {substrate} and this is product: {product}")
+
+
                 cur_edge_data = G.get_edge_data(substrate, product)
+
+                print(f"This is current_edge_data {cur_edge_data}")
+
                 cur_edge_support = count_edge_support_summary(cur_edge_data)
+
+                print(f"This is cur_edge_support {cur_edge_support}")
                 
                 # Kumar
-                # 
-                if substrate not in list(structures_attributes_df.index) or product not in list(structures_attributes_df.index):
+                # remove duplicates in the structures_attributes_df file
+                if substrate not in list(structures_attributes_df['root']) or product not in list(structures_attributes_df['predicted_id']):
+                    
+                    print(f"This substrate {substrate} and product {product} are not found in the structures_attributes_df_indexed.index")
                     pass
-                else:
-                    cur_substrate_distance = structures_attributes_df.root_distance[substrate]
-                    cur_product_distance = structures_attributes_df.root_distance[product]
-                
-                    if cur_substrate_distance == cur_product_distance:
-                        cycle_supports[substrate] = cur_edge_support
-                    elif cur_substrate_distance > cur_product_distance:     # this means the edge is towards the root
-                        edges_to_break_cycle.append([substrate, product])
 
-                    if not edges_to_break_cycle:
-                        substrate = min(cycle_supports, key=cycle_supports.get)
-                        if substrate == cur_cycle_nodes[-1]:     # last reaction in cycle
-                            product = cur_cycle_nodes[0]
-                        else:
-                            product = cur_cycle_nodes[cur_cycle_nodes.index(substrate)+1]
-                        edges_to_remove.append([substrate, product])
-                    else:
-                        for n in edges_to_break_cycle:
-                            edges_to_remove.append(n)
+                else:
+
+                    print(f"This substrate {substrate} and product {product} were found in the structures_attributes_df_indexed.index")
+
+                    #cur_substrate_distance = structures_attributes_df_indexed.root_distance[substrate]
+                    #cur_product_distance = structures_attributes_df_indexed.root_distance[product]
+
+                    cur_substrate_distance = structures_attributes_df.loc[(structures_attributes_df['root'] == substrate), 'root_distance'].iloc[0]
+                    cur_product_distance = structures_attributes_df.loc[(structures_attributes_df['predicted_id'] == product), 'root_distance'].iloc[0]
+                    
+
+                    print(f"This is cur_substrate_distance: {cur_substrate_distance}")
+                    print(f"This is cur_product_distance: {cur_product_distance}")
+                
+                if cur_substrate_distance == cur_product_distance:
+                    cycle_supports[substrate] = cur_edge_support
+                elif cur_substrate_distance > cur_product_distance:     # this means the edge is towards the root
+                    edges_to_break_cycle.append([substrate, product])
+
+            if not edges_to_break_cycle:
+                substrate = min(cycle_supports, key=cycle_supports.get)
+                if substrate == cur_cycle_nodes[-1]:     # last reaction in cycle
+                    product = cur_cycle_nodes[0]
+                else:
+                    product = cur_cycle_nodes[cur_cycle_nodes.index(substrate)+1]
+                edges_to_remove.append([substrate, product])
+            else:
+                for n in edges_to_break_cycle:
+                    edges_to_remove.append(n)
+    print(f"These edges are going to be removed {edges_to_remove}")
     return edges_to_remove
 
 
