@@ -7,7 +7,7 @@ https://meantools.readthedocs.io/en/latest/
 
 Maintainer
 ==========
-Dr. Kumar Saurabh Singh (kumar.singh@wur.nl)
+Dr. Kumar Saurabh Singh (kumar.singh@wur.nl; k.s.singh@uu.nl)
 
 Principal Investigator
 ======================
