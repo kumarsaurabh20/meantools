@@ -165,7 +165,7 @@ def main(Options):
         raise
 
     #
-    df.columns = ['ms_name', 'mz']
+    df.columns = ['metabolite', 'mz']
     df = df.astype({'mz': float})
     #chunks = split_dataframe(df, Options.chunk_size)
     chunk_count = sum(1 for _ in split_dataframe(df, Options.chunk_size))
@@ -196,7 +196,7 @@ def main(Options):
         new.reset_index(inplace=True)
 
         # merge the chunk_df with all adducts data frame using feature id
-        df_outer = pd.merge(chunk_df, new, on="ms_name", how="outer")
+        df_outer = pd.merge(chunk_df, new, on="metabolite", how="outer")
 
         # Kumar Dec 2023
         # low and high masses - these are the mass tolerances for matching the experimental mass
@@ -228,7 +228,7 @@ def main(Options):
         #final = temp2[temp2['mm_high'].notnull()].drop_duplicates(subset=['ms_name', 'mz', 'Ion_name'], keep="first")
         #final = temp2[temp2['mm_high'].notnull()].drop_duplicates(subset=['lotus_id', 'smiles', 'ms_name'], keep="first")
         #final = temp2[temp2['mm_high'].notnull()].drop_duplicates(subset=['lotus_id', 'ms_name', 'mz', 'Ion_name'], keep="first")
-        final = temp2[temp2['mm_high'].notnull()].drop_duplicates(subset=['lotus_id', 'molecular_weight', 'ms_name', 'mz'], keep="first")
+        final = temp2[temp2['mm_high'].notnull()].drop_duplicates(subset=['lotus_id', 'molecular_weight', 'metabolite', 'mz'], keep="first")
 
         # Drop unwanted columns from the final dataframe
         final.drop(['level_1', 'Ion_mode', 'Ion_mass', 'Charge', 'Mult', 'Mass', 'mm', 'mm_low', 'mm_high'], axis=1, inplace=True)
@@ -245,15 +245,15 @@ def main(Options):
         gizmos.print_milestone('Writing CSV files...', Options.verbose)
         res_file_path = os.path.join(Options.output_folder, 'full_results.csv')
         sql_full = "SELECT lotus_id, ms_name, mz, molecular_weight, iupac_name, inchi, inchikey, smiles, NPclassifierPathway, NPclassifierSuperclass, NPclassifierClass, Ion_name FROM {};".format(Options.sqlite_table_name)
-        create_output_files(Options.sqlite_db_name, sql_full, ['lotus_id', 'ms_name', 'mz', 'molecular_weight', 'iupac_name', 'inchi', 'inchikey', 'smiles', 'NPclassifierPathway','NPclassifierSuperclass','NPclassifierClass', 'Ion_name'], res_file_path)
+        create_output_files(Options.sqlite_db_name, sql_full, ['lotus_id', 'metabolite', 'mz', 'molecular_weight', 'iupac_name', 'inchi', 'inchikey', 'smiles', 'NPclassifierPathway','NPclassifierSuperclass','NPclassifierClass', 'Ion_name'], res_file_path)
 
         res_file_path = os.path.join(Options.output_folder, 'LOTUS_entries.csv')
         sql_lotus_entries = "SELECT ms_name, lotus_id, molecular_weight, smiles FROM {};".format(Options.sqlite_table_name)
-        create_output_files(Options.sqlite_db_name, sql_lotus_entries, ['ms_name', 'lotus_id', 'molecular_weight', 'smiles'], res_file_path)
+        create_output_files(Options.sqlite_db_name, sql_lotus_entries, ['metabolite', 'lotus_id', 'molecular_weight', 'smiles'], res_file_path)
 
         res_file_path = os.path.join(Options.output_folder, 'observed_mm.csv')
         sql_mm = "SELECT ms_name, mz, molecular_weight FROM {};".format(Options.sqlite_table_name)
-        create_output_files(Options.sqlite_db_name, sql_mm, ['ms_name', 'mz', 'molecular_weight'], res_file_path)
+        create_output_files(Options.sqlite_db_name, sql_mm, ['metabolite', 'mz', 'molecular_weight'], res_file_path)
 
 
 if __name__ == "__main__":
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     start_time = time.time()
     main(Options)
     end_time = time.time()
-    print(end_time - start_time)
+    #print(end_time - start_time)
 
 #def create_connection(db_file):
 #    """ create a database connection to a SQLite database """

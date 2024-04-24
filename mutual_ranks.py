@@ -11,6 +11,7 @@ from itertools import combinations
 import pandas as pd
 import numpy as np
 from scipy import stats
+from tqdm import tqdm
 
 
 
@@ -21,9 +22,8 @@ def calc_MR(rank1, rank2):
 
 def get_MR_from_correlations(correlations_df, all_objects):
     # GET RANKS
-    print('Getting ranks...')
     ranks_dict = {}
-    for cur_object in all_objects:
+    for cur_object in tqdm(all_objects, total=len(all_objects), desc='Getting ranks'):
         df1 = correlations_df[correlations_df.metabolite == cur_object]
         df1 = df1[['gene', 'correlation']]
         df1.columns = ['other_object', 'correlation']
@@ -40,10 +40,9 @@ def get_MR_from_correlations(correlations_df, all_objects):
             ranks_dict[cur_object][cur_row.other_object] = rank
 
     # GET MUTUAL RANKS
-    print('Getting mutual ranks...')
     edges_df = []
     object_combinations = {n for n in combinations(all_objects, 2)}
-    for metabolite, gene in object_combinations:
+    for metabolite, gene in tqdm(object_combinations, total=len(object_combinations), desc='Getting mutual ranks'):
         if ((metabolite in ranks_dict and gene in ranks_dict and gene in ranks_dict[metabolite] and metabolite in ranks_dict[gene])):
             rank1 = ranks_dict[metabolite][gene]
             rank2 = ranks_dict[gene][metabolite]

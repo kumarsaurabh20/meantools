@@ -673,7 +673,7 @@ def df_to_graph(df, use_pd_graph):
 
 
 # This function gathers edge weight support for the network
-def get_means_for_substrate_and_product(row, df, substrate=True):
+def get_max_for_substrate_and_product(row, df, substrate=True):
 
     substrate_id = row['predicted_substrate_id']
     product_id = row['predicted_product_id']
@@ -685,10 +685,10 @@ def get_means_for_substrate_and_product(row, df, substrate=True):
         filtered_df[['correlation_substrate', 'P_substrate', 'correlation_product', 'P_product']].apply(pd.to_numeric, errors='coerce')
 
     if substrate:
-        mean_correlation_substrate = filtered_df['correlation_substrate'].mean()
+        mean_correlation_substrate = filtered_df['correlation_substrate'].max()
         return mean_correlation_substrate
     else:
-        mean_correlation_product = filtered_df['correlation_product'].mean()
+        mean_correlation_product = filtered_df['correlation_product'].max()
         return mean_correlation_product
 
 

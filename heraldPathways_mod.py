@@ -163,25 +163,18 @@ def load_enzyme_input(Options, mg_dict):
     #else:
     #    merged_df = pd.DataFrame()
 
-    correlation_df.to_csv("correlation_df.csv", index=False)
 
     gizmos.print_milestone('Integrating gene annotations with reaction rules...', Options.verbose)
     merged_df = pd.merge(annotations_df, pfam_rules_df, how='inner')    # on pfam_rule
     del merged_df['pfam_rule']
 
-    merged_df.to_csv("gene_annotations_with_reaction_rules.csv", index=False)
-
     #
     gizmos.print_milestone('Integrating correlations with gene annotations and reaction rules...', Options.verbose)
     merged_df = pd.merge(merged_df, correlation_df, how='inner')    # on gene
 
-    merged_df.to_csv("correlations_gene_annotations_with_reaction_rules.csv", index=False)
-
     #
     gizmos.print_milestone('Duplicate cleanup...', Options.verbose)
     merged_df = merged_df.drop_duplicates()         # annotations_df merge produces duplicates due to pfam_rule
-
-    merged_df.to_csv("correlations_gene_annotations_with_reaction_rules_drop_duplicates.csv", index=False)
 
     return merged_df
 
@@ -277,8 +270,6 @@ def load_input(mg_dict):
 
     rt_df, base_rules_df = load_and_merge_rules_and_transitions(base_smarts_id)
 
-    rt_df.to_csv("transition_and_rules.csv", index=False)
-
     # Kumar
     # 15/09/2022
     if Options.pfam_RR_annotation and Options.gene_annotation:
@@ -287,11 +278,9 @@ def load_input(mg_dict):
 
         #merge on reaction_id and ms_substrate/product
         subs_corr_df = pd.merge(rt_df, enzyme_df.rename(columns={'metabolite': 'ms_substrate',
-                                                                 'correlation': 'correlation_substrate',
-                                                                 'P': 'P_substrate'}), how='inner')
+                                                                 'correlation': 'correlation_substrate','P': 'P_substrate'}), how='inner')
         prod_corr_df = pd.merge(rt_df, enzyme_df.rename(columns={'metabolite': 'ms_product',
-                                                                 'correlation': 'correlation_product',
-                                                                 'P': 'P_product'}), how='inner')
+                                                                 'correlation': 'correlation_product','P': 'P_product'}), how='inner')
 
         
         # Here, results may include same rule-gene-coexp data, but through different RR_enzyme annotation
@@ -301,8 +290,6 @@ def load_input(mg_dict):
         # for this, we remove smarts_id from smarts_has
         allowed_smarts_id = set(rt_df.smarts_id)
         map_df['smarts_has'] = map_df.smarts_has.apply(lambda x: x.intersection(allowed_smarts_id))
-
-        rt_df.to_csv("transition_merged_correlation_PFAM_reaction.csv", index=False)
 
     return rt_df, map_df, base_rules_df
 
@@ -477,8 +464,6 @@ def get_dfs_for_metabolite(cur_structure_id, structures_df, rt_df, map_df, base_
     metabolite_base_rules_df = metabolite_base_rules_df[['smarts_id', 'rxn_smarts', 'rxn']].drop_duplicates()
     metabolite_base_rules_df = pd.concat([metabolite_base_rules_df, base_rules_df], sort=True)
 
-    
-    rxn_df.to_csv("rxn_df.csv", index=False)
     return rxn_df, metabolite_map_df, metabolite_base_rules_df
 
 
@@ -617,9 +602,6 @@ def update_reactions_with_product_id(reactions_df, structures_list):
     # get fully annotated new structures
     fresh_structures_df = get_new_structures(updated_reactions_df)
 
-    updated_reactions_df.to_csv("updated_reactions_df.csv", index=False)
-    fresh_structures_df.to_csv("fresh_structures_df.csv", index=False)
-
     return updated_reactions_df, fresh_structures_df
 
 
@@ -659,7 +641,6 @@ def react_cur_structure(cur_structure_id, structures_df, rt_df, map_df, base_rul
     else:
         process_results_df = gizmos.query_filtered_rxn_db(rxn_df, cur_map_df, cur_base_rules_df, Options)
 
-        process_results_df.to_csv("process_results_df.csv", index=False)
 
         return process_results_df
 

@@ -10,6 +10,7 @@ from multiprocessing import Pool, Manager
 import sqlite3
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.managers import SharedMemoryManager
+from tqdm import tqdm
 
 # project specific module
 import mutual_ranks
@@ -72,7 +73,6 @@ def corr_w_transcriptome(metabolite, transcripts_df, Options):
     cur_metabolite_transcripts_df = cur_metabolite_transcripts_df[cutoff_mask]
     cur_metabolite_transcripts_df = cur_metabolite_transcripts_df.sort_values(by='correlation', ascending=False)
     results_df = pd.DataFrame({'metabolite': metabolite.name, 'gene': cur_metabolite_transcripts_df.index, 'correlation': cur_metabolite_transcripts_df.correlation, 'P': cur_metabolite_transcripts_df.P})
-    print(results_df)
     return results_df
 
 
@@ -99,24 +99,6 @@ def apply_MAD_filter(df):
     df_filtered = df[mask]
     del df_filtered['MAD']
     return df_filtered
-
-
-def export_(conn, tablename):
-
-    # output sqlite tables with FCs so that association strengths can be computed between different FCs
-    query = f'SELECT * FROM {tablename}'
-    df = pd.read_sql_query(query, conn)
-    
-    # Specify the directory
-    directory = 'cluster_fingerprinting'
-
-    # Create the directory if it doesn't exist
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
-    # Save the DataFrame to a CSV file in the specified directory
-    csv_file = os.path.join(directory, '{}.csv'.format(tablename))
-    df.to_csv(csv_file, index=False)
 
 
 
@@ -155,16 +137,18 @@ def main(Options):
     ns.df = transcripts_df
     results = []
 
-    gizmos.print_milestone('Running correlations...', Options.verbose)
-    #with Pool(processes=8, maxtasksperchild=10) as pool:
-    
-    for i, cur_metabolite in metabolites_df.iterrows():
-        pool.apply_async(corr_w_transcriptome, args=(cur_metabolite, ns.df, Options), error_callback=print_child_proc_error, callback=results.append)
-    pool.close()
-    pool.join()
+    def append_result(result):
+        results.append(result)
+        pbar.update(1)
+
+    total_iterations = len(metabolites_df)
+    with tqdm(total=total_iterations, desc="Getting correlations") as pbar:
+        for i, cur_metabolite in metabolites_df.iterrows():  
+            pool.apply_async(corr_w_transcriptome, args=(cur_metabolite, ns.df, Options), error_callback=print_child_proc_error, callback=append_result)
+        pool.close()
+        pool.join()
 
     results_df = pd.concat(results).reset_index(drop=True)
-    results_df.to_csv("PAL_correlations.csv", index=False)
     
     gizmos.print_milestone('Writing correlations to the database...', Options.verbose)
     

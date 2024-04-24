@@ -17,7 +17,7 @@ import svgutils.transform as sg
 from svgelements import *
 
 import gizmos
-import svg
+import graphics
 
 DrawingOptions.atomLabelFontSize = 80
 DrawingOptions.dotsPerAngstrom = 100
@@ -138,7 +138,7 @@ def print_pathway(nodes, reactions_df, output_file, molecules_folder, print_reac
 
         if os.path.exists(mol_file):
             molecule_files.append(mol_file)
-            width, height = svg.get_size(mol_file)
+            width, height = graphics.get_size(mol_file)
             # MOL NAME
             if next_molecule_offset > 0:
                 cur_x = 0
@@ -258,11 +258,11 @@ def print_pathway(nodes, reactions_df, output_file, molecules_folder, print_reac
         else:
             pass
 
-    svgs = svg.files_to_svg_dict(molecule_files)
+    svgs = graphics.files_to_svg_dict(molecule_files)
     file_lists = list(svgs)
     reference = list(svgs)[0]
-    svg.rescale(svgs)
-    svg.change_positions(svgs)
+    graphics.rescale(svgs)
+    graphics.change_positions(svgs)
     full_width = 2 * svgs[reference].width
     full_height = sum([svgs[i].height for i in file_lists])
     fig = sg.SVGFigure(full_width, full_height)
@@ -438,9 +438,18 @@ def main():
                 # Kumar
                 # Feb 2024
                 # adds edge score and avg. edge weights properties of each reactant
-                cur_root_structures_network_df['gene_support'] = cur_root_structures_network_df.apply(gizmos.count_edge_support_summary, axis=1)
-                cur_root_structures_network_df['avg_subs_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_means_for_substrate_and_product, df=reactions_df, substrate=True, axis=1)
-                cur_root_structures_network_df['avg_prod_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_means_for_substrate_and_product, df=reactions_df, substrate=False, axis=1)
+                attributes_df = pd.DataFrame()
+
+                attributes_df['gene_support'] = cur_root_structures_network_df.apply(gizmos.count_edge_support_summary, axis=1)
+                attributes_df['avg_subs_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=True, axis=1)
+                attributes_df['avg_prod_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=False, axis=1)
+
+                
+                cur_root_structures_network_df = pd.concat([cur_root_structures_network_df, attributes_df], axis=1)
+                
+                #cur_root_structures_network_df['gene_support'] = gene_support
+                #cur_root_structures_network_df['avg_subs_edge_weight'] = avg_subs_edge_weight
+                #cur_root_structures_network_df['avg_prod_edge_weight'] = avg_prod_edge_weight
 
 
                 # PREPARE STRUCTURES
