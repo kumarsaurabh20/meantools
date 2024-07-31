@@ -30,7 +30,7 @@ def get_args():
 	parser.add_argument('-f','--annotation_file', default='', action='store', required=False, help='Annotation file to annotate FCs. Only if -a is flagged! <gene><tab><annotation>')
 	parser.add_argument('-mc', '--merge_clusters', default=False, action='store_true', required=False, help='If you want to merge FCs!')
 	parser.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap'], help='Default: overlap!')
-	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Deacy rate of FCs. Default: 25')
+	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
 	parser.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
 	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expressio network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
 	parser.add_argument('-o', '--outfile', default=False, required=False, action='store', help='Name of the matrix file showing association strength (WARNING:: file size is dependent on number of FCs)!')
@@ -468,6 +468,31 @@ def main(Options):
 
 			# send results to the database
 			gizmos.export_to_sql(Options.sqlite_db_name, cluster_dataframe, 'merged_clusters_fingerprint', index=False)
+
+		elif Options.merge_method == "coexpression":
+			
+			# read csv with the edges 
+			# add a paramter for it above
+
+			# make optional to filter edges that have a biosynthetic genes 
+			# if the parameter is provided 
+
+			# what are deduplicated metabolites? 
+
+
+			# send results to the database
+			# for every decay rate as separate 
+			tablename = "merged_cluster_overlap_metabolites"
+			
+			if Options.decay_rate:
+				
+				table_name = tablename + "_DR_" + str(Options.decay_rate)
+				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
+
+			else:
+				
+				pass
+				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
 
 		else:
 			sys.exit("Not a valid method for merging cluster. Try again!")
