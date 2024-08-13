@@ -23,13 +23,13 @@ plt.rcParams['figure.max_open_warning'] = 500
 def get_args():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-ft','--feature_table', default='', action='store', required=True, help='Metabolomics-based feature table!')
-	parser.add_argument('-qm','--quantitation_matrix', default='', action='store', required=True, help='Normalized expression table from the RNAseq data!')
+	parser.add_argument('-qm','--quantitation_matrix', default='', action='store', required=True, help='Normalized expression table from the RNAseq data! First 3 columns need to be named as <gene1><gene2><edgeweight>')
 	parser.add_argument('-l','--targeted_list', default='', action='store', required=False, help='Target list of genes and metabolites in a csv file. <ID><metabolites><genes>')
 	parser.add_argument('-a', '--annotation', default=False, action='store_true', required=False, help='Flag for annotation. Default is False')
 	parser.add_argument('-m', '--heatmap', default=False, action='store_true', required=False, help='Flag for generating heatmaps for each FCs. Default is False')
 	parser.add_argument('-f','--annotation_file', default='', action='store', required=False, help='Annotation file to annotate FCs. Only if -a is flagged! <gene><tab><annotation>')
 	parser.add_argument('-mc', '--merge_clusters', default=False, action='store_true', required=False, help='If you want to merge FCs!')
-	parser.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap'], help='Default: overlap!')
+	parser.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap', 'coexpression'], help='Default: overlap!')
 	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
 	parser.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
 	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expressio network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
@@ -91,7 +91,7 @@ def generate_heatmaps(df, cluster_id, directory):
 	# Create the directory for the heatmaps, if it doesn't exist
 	if not os.path.exists(directory):
 		os.makedirs(directory)
-  	
+	  
 	# Calculate the size based on the number of features
 	#num_features = len(extracted_rows_combined.columns)
 	#figsize = (8, num_features // 2)  # Adjust this factor to control the height
@@ -298,6 +298,87 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 
 	'''
 
+def merge_clusters_coex(df, coexpression_df, dr=25, threshold=0.5):
+	
+	'''
+	To merge clusters based on coexpression edges. 
+	-----------------------------------------------
+
+	param1: df: DataFrame with cluster ID and Members
+	param2: coexpression_df: DataFrame with coexpression scores between genes
+	param3: dr: decay rate of FCs
+	param4: threshold: threshold for edge weight 
+	return: merged_df: DataFrame with merged clusters based on coexpression network
+
+	'''
+	# check if it's ok to set a threshold for the edge weight!
+	# optional: could allow filtering for a p-value if a p-value column is provided 
+
+	# selecting rows using a user provided decay rate
+	decay_rate = "DR_" + str(dr)
+	selected_rows = df[df['Source'] == decay_rate]
+	df = selected_rows[['ID', 'Members']]
+	
+	cluster_dict = {}
+	for index, row in df.iterrows():
+		clusters = row['Members'].split(' ')
+		cluster_key = row['ID']
+		cluster_dict[cluster_key] = clusters
+
+	# Initialize a list for merged clusters and a set to track visited clusters
+	merged_clusters = []
+	visited_clusters = set()
+
+	# Iterate over the clusters and merge based on gene-gene connections
+	for cluster_key, cluster in tqdm(cluster_dict.items(), desc='Merging clusters based on coexpression'):
+		if cluster_key in visited_clusters:
+			continue
+
+		# Start with the current cluster
+		current_cluster = cluster.copy()
+		merge_occurred = True
+
+		while merge_occurred:
+			merge_occurred = False
+			clusters_to_merge = []
+
+			for other_key, other_cluster in cluster_dict.items():
+				if other_key in visited_clusters or other_key == cluster_key:
+					continue
+
+				# Check if there are any gene-gene connections between current_cluster and other_cluster
+				for gene in current_cluster:
+					if gene in coexpression_df['gene1'].values or gene in coexpression_df['gene2'].values:
+						connections = coexpression_df[
+							((coexpression_df['gene1'] == gene) & (coexpression_df['edgeweight'] >= threshold)) |
+							((coexpression_df['gene2'] == gene) & (coexpression_df['edgeweight'] >= threshold))
+						]
+
+						connected_genes = set(connections['gene1']).union(set(connections['gene2']))
+
+						if connected_genes & other_cluster:
+							clusters_to_merge.append(other_key)
+							current_cluster.update(other_cluster)
+							merge_occurred = True
+							break
+
+			# Mark clusters to merge as visited
+			visited_clusters.update(clusters_to_merge)
+
+		# Remove duplicates from the merged cluster (although it should already be a set)
+		unique_members = set(current_cluster)
+		merged_clusters.append(unique_members)
+		visited_clusters.add(cluster_key)  # Mark the current cluster as visited after merging
+
+	# Convert merged clusters back to a DataFrame
+	merged_df = pd.DataFrame({
+		'ID': [f'MC_{i+1}' for i in range(len(merged_clusters))],
+		'Members': [' '.join(sorted(cluster)) for cluster in merged_clusters]
+	})
+
+	return merged_df
+
+
 def fill_extracted_rows(row, transcripts_df, metabolite_df):
 
 	extracted_rows_combined = pd.DataFrame()
@@ -470,20 +551,34 @@ def main(Options):
 			gizmos.export_to_sql(Options.sqlite_db_name, cluster_dataframe, 'merged_clusters_fingerprint', index=False)
 
 		elif Options.merge_method == "coexpression":
+
+			tablename = "merged_cluster_coex"
+
+			# the evidence option must be true
+			if Options.evidence:
+				# the evidence source must be coex
+				if Options.evidence_source == "coex":
+					if Options.quantitation_matrix: 
+					# read the coexpression table with the edges
+						coexpression_df = pd.read_csv(Options.quantitation_matrix)
+
+						# optional: filter edges that contain biosynthetic genes (from the annotations file)
+						
+						# add function merge_clusters_coex above
+						# frame is the concatenated data frame from all DRs
+						merged_df = merge_clusters_coex(frame, coexpression_df, Options.decay_rate)
+
+
+					else: 
+						sys.exit("Coexpression table is not provided.")
+				else:
+					sys.exit("Evidence source is not coexpression.")
+			else:
+				sys.exit("Evidence is not set to True.")		
 			
-			# read csv with the edges 
-			# add a paramter for it above
-
-			# make optional to filter edges that have a biosynthetic genes 
-			# if the parameter is provided 
-
-			# what are deduplicated metabolites? 
-
-
 			# send results to the database
 			# for every decay rate as separate 
-			tablename = "merged_cluster_overlap_metabolites"
-			
+
 			if Options.decay_rate:
 				
 				table_name = tablename + "_DR_" + str(Options.decay_rate)
