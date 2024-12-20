@@ -298,83 +298,40 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 
 	'''
 
-def merge_clusters_coex(df, coexpression_df, dr=25, threshold=0.5):
-	
-	'''
-	To merge clusters based on coexpression edges. 
-	-----------------------------------------------
 
-	param1: df: DataFrame with cluster ID and Members
-	param2: coexpression_df: DataFrame with coexpression scores between genes
-	param3: dr: decay rate of FCs
-	param4: threshold: threshold for edge weight 
-	return: merged_df: DataFrame with merged clusters based on coexpression network
-
-	'''
-	# check if it's ok to set a threshold for the edge weight!
-	# optional: could allow filtering for a p-value if a p-value column is provided 
-
-	# selecting rows using a user provided decay rate
-	decay_rate = "DR_" + str(dr)
-	selected_rows = df[df['Source'] == decay_rate]
-	df = selected_rows[['ID', 'Members']]
-	
-	cluster_dict = {}
-	for index, row in df.iterrows():
-		clusters = row['Members'].split(' ')
-		cluster_key = row['ID']
-		cluster_dict[cluster_key] = clusters
-
-	# Initialize a list for merged clusters and a set to track visited clusters
-	merged_clusters = []
-	visited_clusters = set()
-
-	# Iterate over the clusters and merge based on gene-gene connections
-	for cluster_key, cluster in tqdm(cluster_dict.items(), desc='Merging clusters based on coexpression'):
-		if cluster_key in visited_clusters:
-			continue
-
-		# Start with the current cluster
-		current_cluster = set(cluster)
-		merge_occurred = True
-
-		while merge_occurred:
-			merge_occurred = False
-			clusters_to_merge = []
-
-			for other_key, other_cluster in cluster_dict.items():
-				if other_key in visited_clusters or other_key == cluster_key:
-					continue
-
-				# Check if there are any gene-gene connections between current_cluster and other_cluster
-				for gene in current_cluster:
-					connections = coexpression_df[((coexpression_df['gene1'] == gene) & (coexpression_df['edgeweight'] >= threshold)) |
-											  ((coexpression_df['gene2'] == gene) & (coexpression_df['edgeweight'] >= threshold))]
-					connected_genes = set(connections['gene1']).union(set(connections['gene2']))
-
-					if connected_genes & set(other_cluster):
-						connected = True
-						break
-
-				if connected:
-					clusters_to_merge.append(other_key)
-					current_cluster.update(other_cluster)
-					merge_occurred = True
-
-			# Mark clusters to merge as visited
-			visited_clusters.update(clusters_to_merge)
-
-		# Remove duplicates from the merged cluster (although it should already be a set)
-		# Store the final merged cluster
-		unique_members = ' '.join(sorted(current_cluster))
-		merged_clusters.append({'ID': cluster_key, 'Members': unique_members})
-		visited_clusters.add(cluster_key)  # Mark the current cluster as visited after merging
-
-	# Convert merged clusters back to a DataFrame
-	merged_df = pd.DataFrame(merged_clusters)
-
-
-	return merged_df
+def merge_clusters_coex(df, evidence_df, dr=25):
+    decay_rate = f"DR_{dr}"
+    selected_rows = df[df['Source'] == decay_rate]
+    cluster_dict = selected_rows.set_index('ID')['Members'].str.split(' ', expand=False).to_dict()
+    
+    G = nx.Graph()
+    
+    for cluster_key, cluster in cluster_dict.items():
+        for gene1 in cluster:
+            for gene2 in cluster:
+                if gene1 != gene2:
+                    G.add_edge(gene1, gene2)
+    
+    if 'gene1' in evidence_df.columns and 'gene2' in evidence_df.columns:
+        if 'edgeweight' in evidence_df.columns:
+            for _, row in evidence_df.iterrows():
+                if row['edgeweight'] >= 0.5:
+                    G.add_edge(row['gene1'], row['gene2'], weight=row['edgeweight'])
+        else:
+            for _, row in evidence_df.iterrows():
+                G.add_edge(row['gene1'], row['gene2'])
+    else:
+        raise ValueError("'gene1' or 'gene2' column not found in the evidence dataframe.")
+    
+    connected_components = list(nx.connected_components(G))
+    
+    merged_clusters = []
+    for i, component in enumerate(connected_components):
+        merged_clusters.append({'ID': f'MC_{i+1}', 'Members': ' '.join(sorted(component))})
+    
+    merged_df = pd.DataFrame(merged_clusters)
+    
+    return merged_df
 
 
 def fill_extracted_rows(row, transcripts_df, metabolite_df):
@@ -550,45 +507,14 @@ def main(Options):
 
 		elif Options.merge_method == "coexpression":
 
-			tablename = "merged_cluster_coex"
-
-			# the evidence option must be true
-			if Options.evidence:
-				# the evidence source must be coex
-				if Options.evidence_source == "coex":
-					if Options.quantitation_matrix: 
-					# read the coexpression table with the edges
-						coexpression_df = pd.read_csv(Options.quantitation_matrix)
-
-						# optional: filter edges that contain biosynthetic genes (from the annotations file)
-						
-						# add function merge_clusters_coex above
-						# frame is the concatenated data frame from all DRs
-						merged_df = merge_clusters_coex(frame, coexpression_df, Options.decay_rate)
-
-
-					else: 
-						sys.exit("Coexpression table is not provided.")
-				else:
-					sys.exit("Evidence source is not coexpression.")
-			else:
-				sys.exit("Evidence is not set to True.")		
-			
-			# send results to the database
-			# for every decay rate as separate 
-
-			if Options.decay_rate:
-				
-				table_name = tablename + "_DR_" + str(Options.decay_rate)
-				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
-
-			else:
-				
-				pass
+			if Options.evidence and Options.evidence_source in ["coex", "specnet"]:
+				evidence_df = pd.read_csv(Options.evidence_source)
+				merged_df = merge_clusters_coex(frame, evidence_df, Options.decay_rate)
+				tablename = f"merged_cluster_graph_DR_{Options.decay_rate}"
 				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
-
-		else:
-			sys.exit("Not a valid method for merging cluster. Try again!")
+	
+			else:
+				sys.exit("Evidence is not set to True or evidence source is not specified.")
 
 
 if __name__ == "__main__":
