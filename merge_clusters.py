@@ -32,7 +32,7 @@ def get_args():
 	parser.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap', 'coexpression'], help='Default: overlap!')
 	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
 	parser.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
-	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expressio network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
+	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expression network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
 	parser.add_argument('-o', '--outfile', default=False, required=False, action='store', help='Name of the matrix file showing association strength (WARNING:: file size is dependent on number of FCs)!')
 	parser.add_argument('-dn', '--sqlite_db_name', default='', action='store', required=True, help='Provide a name for the database')
 	return parser.parse_args()
@@ -335,7 +335,7 @@ def merge_clusters_coex(df, coexpression_df, dr=25, threshold=0.5):
 			continue
 
 		# Start with the current cluster
-		current_cluster = cluster.copy()
+		current_cluster = set(cluster)
 		merge_occurred = True
 
 		while merge_occurred:
@@ -348,33 +348,31 @@ def merge_clusters_coex(df, coexpression_df, dr=25, threshold=0.5):
 
 				# Check if there are any gene-gene connections between current_cluster and other_cluster
 				for gene in current_cluster:
-					if gene in coexpression_df['gene1'].values or gene in coexpression_df['gene2'].values:
-						connections = coexpression_df[
-							((coexpression_df['gene1'] == gene) & (coexpression_df['edgeweight'] >= threshold)) |
-							((coexpression_df['gene2'] == gene) & (coexpression_df['edgeweight'] >= threshold))
-						]
+					connections = coexpression_df[((coexpression_df['gene1'] == gene) & (coexpression_df['edgeweight'] >= threshold)) |
+											  ((coexpression_df['gene2'] == gene) & (coexpression_df['edgeweight'] >= threshold))]
+					connected_genes = set(connections['gene1']).union(set(connections['gene2']))
 
-						connected_genes = set(connections['gene1']).union(set(connections['gene2']))
+					if connected_genes & set(other_cluster):
+						connected = True
+						break
 
-						if connected_genes & other_cluster:
-							clusters_to_merge.append(other_key)
-							current_cluster.update(other_cluster)
-							merge_occurred = True
-							break
+				if connected:
+					clusters_to_merge.append(other_key)
+					current_cluster.update(other_cluster)
+					merge_occurred = True
 
 			# Mark clusters to merge as visited
 			visited_clusters.update(clusters_to_merge)
 
 		# Remove duplicates from the merged cluster (although it should already be a set)
-		unique_members = set(current_cluster)
-		merged_clusters.append(unique_members)
+		# Store the final merged cluster
+		unique_members = ' '.join(sorted(current_cluster))
+		merged_clusters.append({'ID': cluster_key, 'Members': unique_members})
 		visited_clusters.add(cluster_key)  # Mark the current cluster as visited after merging
 
 	# Convert merged clusters back to a DataFrame
-	merged_df = pd.DataFrame({
-		'ID': [f'MC_{i+1}' for i in range(len(merged_clusters))],
-		'Members': [' '.join(sorted(cluster)) for cluster in merged_clusters]
-	})
+	merged_df = pd.DataFrame(merged_clusters)
+
 
 	return merged_df
 
