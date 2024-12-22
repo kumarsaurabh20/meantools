@@ -33,7 +33,7 @@ def get_args():
 	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
 	parser.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
 	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expression network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
-	parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns! If -ef is not provided, and -es is set to coex the quantitation matrix will be used!')
+	parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns!')
 	parser.add_argument('-o', '--outfile', default=False, required=False, action='store', help='Name of the matrix file showing association strength (WARNING:: file size is dependent on number of FCs)!')
 	parser.add_argument('-dn', '--sqlite_db_name', default='', action='store', required=True, help='Provide a name for the database')
 	return parser.parse_args()
@@ -319,10 +319,9 @@ def merge_clusters_coex(df, evidence_df, dr=25):
                 if row['edgeweight'] >= 0.5:
                     G.add_edge(row['gene1'], row['gene2'], weight=row['edgeweight'])
         else:
-            for _, row in evidence_df.iterrows():
-                G.add_edge(row['gene1'], row['gene2'])
+            raise ValueError("'edgeweight' column missing in the evidence dataframe.")
     else:
-        raise ValueError("'gene1' or 'gene2' column not found in the evidence dataframe.")
+        raise ValueError("'gene1' or 'gene2' column missing in the evidence dataframe.")
     
     connected_components = list(nx.connected_components(G))
     
@@ -333,6 +332,7 @@ def merge_clusters_coex(df, evidence_df, dr=25):
     merged_df = pd.DataFrame(merged_clusters)
     
     return merged_df
+
 
 
 def fill_extracted_rows(row, transcripts_df, metabolite_df):
@@ -512,8 +512,8 @@ def main(Options):
 				if Options.evidence_file:
 					evidence_df = pd.read_csv(Options.evidence_file)
 				else:
-					evidence_df = pd.read_csv(Options.quantitation_matrix)
-					evidence_df = evidence_df[evidence_df['edgeweight'] >= 0.5]
+					raise ValueError("Evidence file (-ef) is required when evidence source is 'coex'.")
+				
 				merged_df = merge_clusters_coex(frame, evidence_df, Options.decay_rate)
 				tablename = f"merged_cluster_graph_DR_{Options.decay_rate}"
 				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
