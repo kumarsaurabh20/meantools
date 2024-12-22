@@ -33,6 +33,7 @@ def get_args():
 	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
 	parser.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
 	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expression network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
+	parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns! If -ef is not provided, and -es is set to coex the quantitation matrix will be used!')
 	parser.add_argument('-o', '--outfile', default=False, required=False, action='store', help='Name of the matrix file showing association strength (WARNING:: file size is dependent on number of FCs)!')
 	parser.add_argument('-dn', '--sqlite_db_name', default='', action='store', required=True, help='Provide a name for the database')
 	return parser.parse_args()
@@ -327,7 +328,7 @@ def merge_clusters_coex(df, evidence_df, dr=25):
     
     merged_clusters = []
     for i, component in enumerate(connected_components):
-        merged_clusters.append({'ID': f'MC_{i+1}', 'Members': ' '.join(sorted(component))})
+        merged_clusters.append({'ID': f'MC_{i+1}', 'Members': ' '.join(map(str, sorted(component)))})
     
     merged_df = pd.DataFrame(merged_clusters)
     
@@ -455,7 +456,7 @@ def main(Options):
 				merged_df = merge_clusters_overlapping(frame, metabolite_features, Options.decay_rate)
 
 			# send results to the database
-			tablename = "merged_cluster_overlap_metabolites"
+			table_name = f"merged_cluster_overlap_metabolites_DR_{Options.decay_rate}"
 			
 			if Options.decay_rate:
 				
@@ -507,14 +508,17 @@ def main(Options):
 
 		elif Options.merge_method == "coexpression":
 
-			if Options.evidence and Options.evidence_source in ["coex", "specnet"]:
-				evidence_df = pd.read_csv(Options.evidence_source)
+			if Options.evidence_source == "coex":
+				if Options.evidence_file:
+					evidence_df = pd.read_csv(Options.evidence_file)
+				else:
+					evidence_df = pd.read_csv(Options.quantitation_matrix)
+					evidence_df = evidence_df[evidence_df['edgeweight'] >= 0.5]
 				merged_df = merge_clusters_coex(frame, evidence_df, Options.decay_rate)
 				tablename = f"merged_cluster_graph_DR_{Options.decay_rate}"
 				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
-	
 			else:
-				sys.exit("Evidence is not set to True or evidence source is not specified.")
+				sys.exit("Evidence source is not set to 'coex'.")
 
 
 if __name__ == "__main__":
