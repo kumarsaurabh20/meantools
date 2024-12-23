@@ -15,9 +15,16 @@ from rdkit.Chem import Draw
 from rdkit.Chem.Draw import DrawingOptions
 import svgutils.transform as sg
 from svgelements import *
+from tqdm import tqdm
+import subprocess
+
+from multiprocessing import Pool, Manager
+from multiprocessing.shared_memory import SharedMemory
+from multiprocessing.managers import SharedMemoryManager
 
 import gizmos
 import graphics
+import reaction_likelihoods
 
 DrawingOptions.atomLabelFontSize = 80
 DrawingOptions.dotsPerAngstrom = 100
@@ -26,22 +33,135 @@ DrawingOptions.bondLineWidth = 2.5
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-sp','--structure_predictions', default='', action='store', required=True, help='Output from heraldPathways.py')
-    parser.add_argument('-of','--output_folder', default='', required=True, action='store', help='All the output files will be saved in this folder!')
-    parser.add_argument('-r','--reactions', default='', action='store', required=False, help='Output from heraldPathways.py')
-    parser.add_argument('-praf','--pfam_RR_annotation', default='', action='store', required=False, help='Nine-column csv. reaction_id, uniprot_id, Pfams, KO, rhea_id_reaction, kegg_id_reaction, rhea_confirmation, kegg_confirmation, KO_prediction. Using this input will add to the pathway figures which pfams are capable of each reaction.')
-    parser.add_argument('-gaf','--gene_annotation', default='', action='store', required=False, help='Two-column csv. Gene, pfam1;pfam2 Using this input in conjunction with pfam_RR_annotation_file will add to the pathway figures which uncorrelated genes in the genome are capable of each reaction.')
-    parser.add_argument('-rr','--reaction_rules', default='strict', required=False, choices=['strict', 'medium', 'loose'], help='Default: strict.')
-    parser.add_argument('-pdg','--use_pd_graph', default=True, required=False, choices=[True, False], type=bool, help='Default: True. Use False with older versions of networkx that do not have pandas compatability.')
-    parser.add_argument('-pam','--print_all_molecules', default=False, choices=[True, False], type=bool, required=False, help='Flag. Use to generate SVGs of all molecules in the results.')
-    parser.add_argument('-pup','--print_uncorr_genes', default=False, choices=[True, False], type=bool, required=False, help='Flag. Generate SVGs for all uncorrelated PFAMs.')
-    parser.add_argument('-p','--pathway', default='', required=False, help='Input comma-separated nodes to generate SVGs of a specific pathway.')
-    parser.add_argument('-v','--verbose', default=False, action='store_true', required=False)
+    
+    required = parser.add_argument_group('Required arguments')
+    required.add_argument('-sp','--structure_predictions', default='', action='store', required=True, help='Output from heraldPathways.py')
+    required.add_argument('-r','--reactions', default='', action='store', required=True, help='Output from heraldPathways.py')
+    required.add_argument('-praf','--pfam_RR_annotation', default='', action='store', required=True, help='Nine-column csv. reaction_id, uniprot_id, Pfams, KO, rhea_id_reaction, kegg_id_reaction, rhea_confirmation, kegg_confirmation, KO_prediction. Using this input will add to the pathway figures which pfams are capable of each reaction.')
+    required.add_argument('-gaf','--gene_annotation', default='', action='store', required=True, help='Two-column csv. Gene, pfam1;pfam2 Using this input in conjunction with pfam_RR_annotation_file will add to the pathway figures which uncorrelated genes in the genome are capable of each reaction.')
+    required.add_argument('-of','--output_folder', default='', required=True, action='store', help='All the output files will be saved in this folder!')
+
+    optional = parser.add_argument_group('Optional arguments')
+    optional.add_argument('-rr','--reaction_rules', default='strict', required=False, choices=['strict', 'medium', 'loose'], help='Default: strict.')
+    optional.add_argument('-em','--ec_map_file', default=False, action='store', required=False, help='This file is required to map pfam IDs with their EC counterparts to predict reaction likelihood scores!')
+    optional.add_argument('-pdg','--use_pd_graph', default=False, required=False, action='store_true', help='Default: True. Use False with older versions of networkx that do not have pandas compatability.')
+    optional.add_argument('-pam','--print_all_molecules', default=False, action='store_true', required=False, help='Flag. Use to generate SVGs of all molecules in the results.')
+    optional.add_argument('-pup','--print_uncorr_genes', default=False, action='store_true', required=False, help='Flag. Generate SVGs for all uncorrelated PFAMs.')
+    optional.add_argument('-rls','--reaction_likelihood_scores', default=False, action='store_true', required=False, help='Reaction likelihood scores help you prioritize reactions anticipated by MEANtools. The scores varies between 0 and 1. Higher the number better is the substrate-enzyme association. WARNING: slow processing!')
+    optional.add_argument('-rt','--remove_temp_files', default=False, action='store_true', required=False, help='Remove files generated by ReactionDecoder tool!')
+    optional.add_argument('-p','--pathway', default='', required=False, help='Input comma-separated nodes to generate SVGs of a specific pathway.')
+    optional.add_argument('-v','--verbose', default=False, action='store_true', required=False)
     return parser.parse_args()
 
+def print_child_proc_error(error_string):
+    print('Child process encountered the following error: ' + str(error_string))
+    return
+
+def process_reactions(args, Options):
+
+    index, row = args
+
+    try:
+        enzyme_tuple = tuple(map(int, row['enzyme_ec'].split('.')[:2]))
+        substrate_smiles = row['predicted_substrate_smiles']
+        product_smiles = row['predicted_product_smiles']
+        combined_smiles = row['predicted_substrate_smiles'] + ">>" + row['predicted_product_smiles']
+        command_template = "java -jar ReactionDecoder.jar -Q SMI -q '{smiles}' -g -c -j ANNOTATE -f XML -p 'run{index}'"
+
+        result = subprocess.run(command_template.format(smiles=combined_smiles, index=index), shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        
+        #if result.returncode != 0:
+        #    print(f"Command failed for row {index}: {result.stderr}")
+        #    return None
+
+        xml_path = f'run{index}_ECBLAST_smiles_ANNONATE.xml'
+        png_path = f'run{index}_ECBLAST_smiles_ANNOTATE.png'
+        rxn_path = f'run{index}_ECBLAST_smiles_ANNOTATE.rxn'
+
+        #4th dec 2024
+        unique_matches, substrate_smiles, product_smiles = reaction_likelihoods.extract_and_analyze_SMILES(xml_path)
+        #print(f"Positions: {unique_matches}, Substrate smiles: {substrate_smiles}, Product smiles: {product_smiles}")
+
+        substrate_som_labels, product_som_labels, max_substrate_likelihood, max_product_likelihood = reaction_likelihoods.compare_molecules(substrate_smiles, product_smiles, enzyme_tuple, unique_matches)
+        #print(f"Substrate SOM labels: {substrate_som_labels}, Product SOM labels: {product_som_labels}")
+        #reactions_df.loc[index, 'substrate_likelihood'] = max_substrate_likelihood
+        #reactions_df.loc[index, 'product_likelihood'] = max_product_likelihood
+
+        result_df = pd.DataFrame({"index": [row.name],"substrate_likelihood": [max_substrate_likelihood]})
+
+        #remove files generated by ReactionDecoder
+        if Options.remove_temp_files:
+            for temp_file in [xml_path, png_path, rxn_path]:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+
+        return result_df
+
+    except Exception as e:
+        print(f"Error processing row {index}: {str(e)}")
+        pass
+
+
+def get_reaction_likelihood_scores(reactions_df, ec_map_file, Options):
+
+    #substrate_product_df = reactions_df[['predicted_substrate_smiles', 'predicted_product_smiles', 'enzyme_pfams']]
+    pfam_ec_map = pd.read_csv(ec_map_file)
+    pfam_to_ec_dict = pfam_ec_map.set_index("Pfam-Domain")["EC-Number"].to_dict()
+
+    if pfam_ec_map["EC-Number"].isna().any():
+        raise ValueError("Some PFAM IDs in the mapping file do not have associated EC IDs. Check the mapping file.")
+
+    def map_pfam_to_ec(pfam):
+        if pfam not in pfam_to_ec_dict:
+            raise ValueError(f"PFAM ID '{pfam}' is not found in the mapping file.")
+        ec = pfam_to_ec_dict.get(pfam)
+        if pd.isna(ec):
+            raise ValueError(f"EC number for the PFAM ID '{pfam}' is missing.")
+        return ec
+
+    try:
+        reactions_df["enzyme_ec"] = reactions_df["enzyme_pfams"].apply(map_pfam_to_ec)
+    except ValueError as e:
+        print(e)
+        raise
+
+    #substrate_product_df["enzyme_ec"] = substrate_product_df["enzyme_pfams"].map(pfam_to_ec_dict)
+    #reactions_df = reactions_df.drop(columns=["enzyme_pfams"])
+
+    mgr = Manager()
+    ns = mgr.Namespace()
+    ns.options = Options
+    results = []
+
+    def append_result(result):
+        results.append(result)
+        pbar.update(1)
+    
+    pool = Pool(processes=4, maxtasksperchild=10)
+    total_iterations = len(reactions_df)
+    with tqdm(total=total_iterations, desc="Getting correlations") as pbar:
+        for index, row in reactions_df.iterrows():  
+            pool.apply_async(process_reactions, args=((index,row), ns.options), error_callback=print_child_proc_error, callback=append_result)
+        pool.close()
+        pool.join()
+
+    #with Pool(processes=4) as pool:
+    #    for result in tqdm(pool.imap(process_reactions, [(index, row, shared_options) for index, row in reactions_df.iterrows()]), total=len(reactions_df), desc="Calculating reaction likelihoods"):
+    #        if result is not None:
+    #            results.append(result)
+
+    if not results:
+        raise ValueError("No results were generated. Please check your input data and processing logic.")
+
+    results_df = pd.concat(results).reset_index(drop=True)
+    reactions_df = pd.merge(reactions_df, results_df, left_index=True, right_on="index").drop(columns=["index"])
+
+    return reactions_df
 
 def get_structure_network(reactions_df):
+    
     structures_network_df = reactions_df[['predicted_substrate_id', 'predicted_product_id']].drop_duplicates().copy()
+    
     if 'correlation_substrate' in reactions_df:
         structures_network_df = structures_network_df.apply(get_structure_network_edge_info, df=reactions_df, axis=1)
     else:
@@ -62,8 +182,8 @@ def get_structure_network(reactions_df):
     return structures_network, structures_network_df
 
 
-# Kumar
-# Provides info on genes correlated with substrate, product, and both.
+#Kumar
+#provides info on genes correlated with substrate, product, and both.
 def get_structure_network_edge_info(cur_edge, df):
     substrate_mask = cur_edge.predicted_substrate_id == df['predicted_substrate_id']
     product_mask = cur_edge.predicted_product_id == df['predicted_product_id']
@@ -86,9 +206,9 @@ def get_structure_network_attributes(root_id, structures_network, structures_df)
     structures_attributes_df.rename(columns={'index': 'predicted_id', 'predicted_substrate_mm':'predicted_mm', 'predicted_substrate_smiles': 'predicted_smiles'}, inplace=True)
     return structures_attributes_df
 
-# Kumar 30/11/2022
-# Instead of structures_df, it makes more sense to use cur_structure_attributes_df
-# Also this folder should be generated inside root folder not outside the cur_root
+#Kumar 30/11/2022
+#instead of structures_df, it makes more sense to use cur_structure_attributes_df
+#also this folder should be generated inside root folder not outside the cur_root
 def print_svg_molecules(cur_structure, path):
     '''
     cur_structure: cur_root_structures_attributes_df file 
@@ -111,9 +231,9 @@ def print_svg_molecules(cur_structure, path):
 
 #Kumar 17/01/23
 #importing functions from the svg.py utilities
-#Previous implementation was not based on SVG generated from RDkit
-#Hence is the workaround
-#Purging this method. If needed copy it from the svg_parser.py file.
+#previous implementation was not based on SVG generated from RDkit
+#hence is the workaround
+#purging this method. If needed copy it from the svg_parser.py file.
 #def get_mol_svg_lines(fname, cur_y):
 def print_pathway(nodes, reactions_df, output_file, molecules_folder, print_reaction_data, print_uncorr_pfams=False, print_uncorr_genes=False, enzyme_df=pd.DataFrame()):
 
@@ -310,7 +430,7 @@ def get_rooted_semiforward_network(structure_network_df, structures_attributes_d
     :param structures_attributes_df:
     :return:
     """
-    # todo check attributes
+    #todo check attributes
     structures_attributes_df2 = structures_attributes_df[['predicted_id', 'root_distance']]
     structure_network_df = structure_network_df.copy()
 
@@ -363,6 +483,10 @@ def main():
         #      P_substrate, correlation_product, P_product
         reactions_df = pd.read_csv(Options.reactions, index_col=None, dtype={'rhea_id_reaction': str,
                                                                                   'reaction_id': str})
+        
+        if Options.reaction_likelihood_scores:
+            reactions_df = get_reaction_likelihood_scores(reactions_df, Options.ec_map_file, Options)
+
         reactions_df = reactions_df.set_index('root')
 
         if Options.gene_annotation and not Options.pfam_RR_annotation:
@@ -441,10 +565,14 @@ def main():
                 attributes_df = pd.DataFrame()
 
                 attributes_df['gene_support'] = cur_root_structures_network_df.apply(gizmos.count_edge_support_summary, axis=1)
-                attributes_df['avg_subs_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=True, axis=1)
-                attributes_df['avg_prod_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=False, axis=1)
-
+                attributes_df['max_subs_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=True, axis=1)
+                attributes_df['max_prod_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=False, axis=1)
+                attributes_df['max_prod_edge_weight'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, substrate=False, axis=1)
+                attributes_df['substrate_likelihood_score'] = cur_root_structures_network_df.apply(gizmos.get_max_for_substrate_and_product, df=reactions_df, axis=1)
                 
+                
+
+
                 cur_root_structures_network_df = pd.concat([cur_root_structures_network_df, attributes_df], axis=1)
                 
                 #cur_root_structures_network_df['gene_support'] = gene_support
@@ -496,7 +624,7 @@ def main():
                     else:
                         gizmos.print_milestone("No cycles found.", Options.verbose)
 
-                # MAKE DAG
+                #MAKE DAG
                 root_dag_structures_network = gizmos.get_dag_from_structures_network(cur_root_structures_network, cur_root_structures_attributes_df)  
                 
                 #while True:
