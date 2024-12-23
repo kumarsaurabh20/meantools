@@ -1,0 +1,48 @@
+Ion_name,Ion_mode,Ion_mass,Charge,Mult,Mass
+M+3H ,positive,M/3 + 1.007276 ,3,0.333,1.007276
+M+2H+Na ,positive,M/3 + 8.334590 ,3,0.333,8.33459
+M+H+2Na ,positive,M/3 + 15.7661904 ,3,0.333,15.76619
+M+3Na ,positive,M/3 + 22.989218 ,3,0.333,22.989218
+M+2H ,positive,M/2 + 1.007276 ,2,0.5,1.007276
+M+H+NH4 ,positive,M/2 + 9.520550 ,2,0.5,9.52055
+M+H+Na ,positive,M/2 + 11.998247 ,2,0.5,11.998247
+M+H+K ,positive,M/2 + 19.985217 ,2,0.5,19.985217
+M+ACN+2H,positive,M/2 + 21.520550 ,2,0.5,21.52055
+M+2Na ,positive,M/2 + 22.989218 ,2,0.5,22.989218
+M+2ACN+2H,positive,M/2 + 42.033823 ,2,0.5,42.033823
+M+3ACN+2H,positive,M/2 + 62.547097 ,2,0.5,62.547097
+M+H ,positive,M + 1.007276 ,1,1,1.007276
+M+NH4 ,positive,M + 18.033823 ,1,1,18.033823
+M+Na ,positive,M + 22.989218 ,1,1,22.989218
+M+CH3OH+H ,positive,M + 33.033489 ,1,1,33.033489
+M+K ,positive,M + 38.963158 ,1,1,38.963158
+M+ACN+H ,positive,M + 42.033823 ,1,1,42.033823
+M+2Na-H ,positive,M + 44.971160 ,1,1,44.97116
+M+IsoProp+H,positive,M + 61.06534,1,1,61.06534
+M+ACN+Na ,positive,M + 64.015765 ,1,1,64.015765
+M+2K+H ,positive,M + 76.919040 ,1,1,76.91904
+M+DMSO+H ,positive,M + 79.02122 ,1,1,79.02122
+M+2ACN+H ,positive,M + 83.060370 ,1,1,83.06037
+M+IsoProp+Na+H,positive,M + 84.05511,1,1,84.05511
+2M+H ,positive,2M + 1.007276 ,1,2,1.007276
+2M+NH4 ,positive,2M + 18.033823 ,1,2,18.033823
+2M+Na ,positive,2M + 22.989218 ,1,2,22.989218
+2M+3H2O+2H,positive,2M + 28.02312 ,2,2,28.02312
+2M+K ,positive,2M + 38.963158 ,1,2,38.963158
+2M+ACN+H ,positive,2M + 42.033823 ,1,2,42.033823
+2M+ACN+Na ,positive,2M + 64.015765 ,1,2,64.015765
+M-3H ,negative,M/3 - 1.007276 ,-3,0.333,-1.007276
+M-2H ,negative,M/2 - 1.007276 ,-2,0.5,-1.007276
+M-H2O-H,negative,M- 19.01839,-1,1,-19.01839
+M-H ,negative,M - 1.007276 ,-1,1,-1.007276
+M+Na-2H ,negative,M + 20.974666 ,-1,1,20.974666
+M+Cl ,negative,M + 34.969402 ,-1,1,34.969402
+M+K-2H ,negative,M + 36.948606 ,-1,1,36.948606
+M+FA-H ,negative,M + 44.998201 ,-1,1,44.998201
+M+Hac-H ,negative,M + 59.013851 ,-1,1,59.013851
+M+Br ,negative,M + 78.918885 ,-1,1,78.918885
+M+TFA-H ,negative,M + 112.985586 ,-1,1,112.985586
+2M-H ,negative,2M - 1.007276 ,-1,2,-1.007276
+2M+FA-H ,negative,2M + 44.998201 ,-1,2,44.998201
+2M+Hac-H ,negative,2M + 59.013851 ,-1,2,59.013851
+3M-H ,negative,3M - 1.007276 ,-1,3,-1.007276
