@@ -7,8 +7,12 @@ https://meantools.readthedocs.io/en/latest/
 
 Maintainer
 ==========
-Dr. Kumar Saurabh Singh (kumar.singh@wur.nl, k.s.singh@uu.nl)
+Dr. Kumar Saurabh Singh (kumarsaurabh.singh@maastrichtuniversity.nl)
+
 
 Principal Investigator
 ======================
 Dr. Marnix Medema (marnix.medema@wur.nl)
+
+
+MEANtools is licensed under the [MIT License](LICENSE.md)
