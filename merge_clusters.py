@@ -300,37 +300,51 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 	'''
 
 
-def merge_clusters_coex(df, evidence_df, dr=25):
+def merge_clusters_coex(df, evidence_df,metabolite_features, dr=25):
+    # Dynamically determine metabolite features from the dataframe
+    
+    # Extract clusters based on decay rate
     decay_rate = f"DR_{dr}"
     selected_rows = df[df['Source'] == decay_rate]
     cluster_dict = selected_rows.set_index('ID')['Members'].str.split(' ', expand=False).to_dict()
-    
+
+    # Create a graph to represent the relationships
     G = nx.Graph()
-    
+
+    # Add edges for genes/metabolites in the same cluster
     for cluster_key, cluster in cluster_dict.items():
         for gene1 in cluster:
             for gene2 in cluster:
                 if gene1 != gene2:
                     G.add_edge(gene1, gene2)
-    
+
+    # Add edges from the evidence file
     if 'gene1' in evidence_df.columns and 'gene2' in evidence_df.columns:
         if 'edgeweight' in evidence_df.columns:
-            for _, row in evidence_df.iterrows():
+            for _, row in tqdm(evidence_df.iterrows(), total=evidence_df.shape[0], desc='Adding edges from evidence'):
                 if row['edgeweight'] >= 0.5:
                     G.add_edge(row['gene1'], row['gene2'], weight=row['edgeweight'])
         else:
             raise ValueError("'edgeweight' column missing in the evidence dataframe.")
     else:
         raise ValueError("'gene1' or 'gene2' column missing in the evidence dataframe.")
-    
+
+    # Find connected components in the graph
     connected_components = list(nx.connected_components(G))
-    
+
+    # Separate genes and metabolites for each cluster
     merged_clusters = []
     for i, component in enumerate(connected_components):
-        merged_clusters.append({'ID': f'MC_{i+1}', 'Members': ' '.join(map(str, sorted(component)))})
-    
+        metabolites = [node for node in component if node in metabolite_features]
+        genes = [node for node in component if node not in metabolite_features]
+        merged_clusters.append({
+            'ID': f'MC_{i+1}',
+            'Metabolites': ', '.join(sorted(metabolites)),
+            'Genes': ', '.join(sorted(genes))
+        })
+
+    # Create a dataframe for the merged clusters
     merged_df = pd.DataFrame(merged_clusters)
-    
     return merged_df
 
 
@@ -460,13 +474,13 @@ def main(Options):
 			
 			if Options.decay_rate:
 				
-				table_name = tablename + "_DR_" + str(Options.decay_rate)
+				table_name = table_name + "_DR_" + str(Options.decay_rate)
 				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
 
 			else:
 				
 				pass
-				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
+				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
 			
 		elif Options.merge_clusters == "fingerprinting":
 
@@ -514,9 +528,12 @@ def main(Options):
 				else:
 					raise ValueError("Evidence file (-ef) is required when evidence source is 'coex'.")
 				
-				merged_df = merge_clusters_coex(frame, evidence_df, Options.decay_rate)
-				tablename = f"merged_cluster_graph_DR_{Options.decay_rate}"
-				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
+				metabolite_features = metabolite_df['feature'].to_list()
+				merged_df = merge_clusters_coex(frame, evidence_df, metabolite_features, Options.decay_rate)
+				table_name = f"merged_cluster_coex_DR_{Options.decay_rate}"
+				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
+				print(f"Coexpression clusters merged and saved to table: {table_name}")
+			
 			else:
 				sys.exit("Evidence source is not set to 'coex'.")
 
