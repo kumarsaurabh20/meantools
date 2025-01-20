@@ -52,7 +52,7 @@ dependencies:
   - numpy-base
   - numpydoc
   - openjdk
-  - pandas
+  - pandas=1.4.3
   - pandoc
   - pandocfilters
   - pip
