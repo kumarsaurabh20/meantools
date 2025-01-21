@@ -166,11 +166,11 @@ def merge_clusters_overlapping(df, metabolite_features, dr=25):
 	clusters = [set(cluster_dict[key]) for key in cluster_dict]
 
 	#find the common first two characters among metabolites
-	first_two_chars = metabolite_features[0][:2]
+	first_chars = metabolite_features[0][:1]
 	for element in metabolite_features:
-		if element[:2] == first_two_chars:
+		if element[:1] == first_chars:
 			pass
-		elif element[:2] != first_two_chars:
+		elif element[:1] != first_chars:
 			raise ValueError("ValueError::Inconsistent names of mass signatures!")
 
 	#metabolites elements
@@ -226,7 +226,7 @@ def merge_clusters_overlapping(df, metabolite_features, dr=25):
 		#genes = [element for element in cluster if element not in metabolite_features]
 		for element in cluster:
 			#if element in metabolite_features:
-			if element.startswith(first_two_chars):
+			if element.startswith(first_chars):
 				metabolites.append(element)
 			else:
 				genes.append(element)
