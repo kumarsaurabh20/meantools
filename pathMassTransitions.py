@@ -52,7 +52,8 @@ def load_enzyme_input(Options, correlation_df):
 
     :return: merged data frame with information from RR + PFAM + transition + correlation
     """
-    pfam_dict = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pfams_dict.csv')  # Acc,Name,Desc
+    gizmos.validate_file_path("data/pfams_dict.csv", "PFAM dictionary")
+    pfam_dict = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/pfams_dict.csv')  # Acc,Name,Desc
 
     # GENE ANNOTATIONS
     # gene, pfam1;pfam2

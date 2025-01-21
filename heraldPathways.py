@@ -134,7 +134,6 @@ def load_enzyme_input(Options, mg_dict):
 
         pfam_rules_df['uniprot_enzyme_pfams_list'] = [[k for k in row if k in pfam_dict.index] for row in uniprot_enzyme_pfams_acc_list]
         pfam_rules_df['uniprot_enzyme_pfams'] = pfam_rules_df.uniprot_enzyme_pfams_list.apply(';'.join)
-        print(pfam_rules_df)
 
         # Expand df so there is only one pfam per row.
         lens = [len(item) for item in pfam_rules_df.uniprot_enzyme_pfams_list]
