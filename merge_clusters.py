@@ -21,21 +21,29 @@ plt.rcParams['figure.max_open_warning'] = 500
 #
 
 def get_args():
-	parser = argparse.ArgumentParser()
-	parser.add_argument('-ft','--feature_table', default='', action='store', required=True, help='Metabolomics-based feature table!')
-	parser.add_argument('-qm','--quantitation_matrix', default='', action='store', required=True, help='Normalized expression table from the RNAseq data! First 3 columns need to be named as <gene1><gene2><edgeweight>')
-	parser.add_argument('-l','--targeted_list', default='', action='store', required=False, help='Target list of genes and metabolites in a csv file. <ID><metabolites><genes>')
-	parser.add_argument('-a', '--annotation', default=False, action='store_true', required=False, help='Flag for annotation. Default is False')
-	parser.add_argument('-m', '--heatmap', default=False, action='store_true', required=False, help='Flag for generating heatmaps for each FCs. Default is False')
-	parser.add_argument('-f','--annotation_file', default='', action='store', required=False, help='Annotation file to annotate FCs. Only if -a is flagged! <gene><tab><annotation>')
-	parser.add_argument('-mc', '--merge_clusters', default=False, action='store_true', required=False, help='If you want to merge FCs!')
-	parser.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap', 'coexpression'], help='Default: overlap!')
-	parser.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
-	parser.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
-	parser.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expression network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
-	parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns!')
-	parser.add_argument('-o', '--outfile', default=False, required=False, action='store', help='Name of the matrix file showing association strength (WARNING:: file size is dependent on number of FCs)!')
-	parser.add_argument('-dn', '--sqlite_db_name', default='', action='store', required=True, help='Provide a name for the database')
+  
+	parser = argparse.ArgumentParser(prog='merge_clusters',
+                                     description='merge functional clusters (FC) based on overlapping metabolites or genes!',
+                                     epilog='Contact - kumarsaurabh.singh@maastrichtuniversity.nl')
+	
+	required = parser.add_argument_group('Required arguments')
+	required.add_argument('-ft','--feature_table', default='', action='store', required=True, help='Metabolomics-based feature table!')
+	required.add_argument('-qm','--quantitation_matrix', default='', action='store', required=True, help='Normalized expression table from the RNAseq data!')
+	required.add_argument('-mc', '--merge_clusters', default=False, action='store_true', required=False, help='If you want to merge FCs!')
+	required.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap', 'coexpression'], help='Default: overlap!')
+	required.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Deacy rate of FCs. Default: 25')
+	required.add_argument('-dn', '--sqlite_db_name', default='', action='store', required=True, help='Provide a name for the database')
+
+	optional = parser.add_argument_group('Optional arguments')
+	optional.add_argument('-l','--targeted_list', default='', action='store', required=False, help='Target list of genes and metabolites in a csv file. <ID><metabolites><genes>')
+	optional.add_argument('-a', '--annotation', default=False, action='store_true', required=False, help='Flag for annotation. Default is False')
+	optional.add_argument('-m', '--heatmap', default=False, action='store_true', required=False, help='Flag for generating heatmaps for each FCs. Default is False')
+	optional.add_argument('-f','--annotation_file', default='', action='store', required=False, help='Annotation file to annotate FCs. Only if -a is flagged! <gene><tab><annotation>')
+	optional.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
+	optional.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expressio network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
+  parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns!')
+	optional.add_argument('-o', '--outfiles', default=False, required=False, action='store_true', help='This will generate output CSV files for each merged clusters!')
+	
 	return parser.parse_args()
 
 
@@ -62,7 +70,7 @@ def calculate_sigma(df):
 
 def annotate_clusters(row, gene_col_index, output_folder):
 
-	# parsing annotation file
+	#parsing annotation file
 	annotation_df = pd.read_csv(Options.annotation_file)
 	cluster_id = row[0]
 	elements_str = row[gene_col_index]
@@ -135,9 +143,7 @@ def split_and_match(row, metabolite_df, column):
 def merge_clusters_overlapping(df, metabolite_features, dr=25):
 	
 	'''
-	This method uses the networkx library to represent the relationships between genes and metabolites as a graph. 
-	It then finds connected components in the graph, which correspond to clusters that share genes and metabolites
-	
+
 	:param frame: Collective data frame from all DR representing a combined collection of FCs. <ID, Members>
 	:return : returns a data frame with merged clustes <new_ID+merged_clusters, combined_members>
 
@@ -146,6 +152,8 @@ def merge_clusters_overlapping(df, metabolite_features, dr=25):
 	#selecting rows using a user provided decay rate
 	#logic: FCs will definitly overlap when you combine all DRs, 
 	#but there might be non-overlapping FCs within a single DR
+	
+
 	decay_rate = "DR_" + str(dr)
 	selected_rows = df[df['Source'] == decay_rate]
 	df = selected_rows[['ID', 'Members']]
@@ -158,6 +166,14 @@ def merge_clusters_overlapping(df, metabolite_features, dr=25):
 
 	#list of clusters
 	clusters = [set(cluster_dict[key]) for key in cluster_dict]
+
+	#find the common first two characters among metabolites
+	first_chars = metabolite_features[0][:1]
+	for element in metabolite_features:
+		if element[:1] == first_chars:
+			pass
+		elif element[:1] != first_chars:
+			raise ValueError("ValueError::Inconsistent names of mass signatures!")
 
 	#metabolites elements
 	m_elements = {}
@@ -193,19 +209,30 @@ def merge_clusters_overlapping(df, metabolite_features, dr=25):
 					merged_clusters.append(new_merged_set)
 
 
-	# Add remaining clusters that don't share M* elements
+	#add remaining clusters that don't share M* elements
 	for i, cluster in enumerate(clusters):
 		if i not in visited_clusters:
 			merged_clusters.append(cluster)
 
-	# Create a list to store metabolites and genes for each merged cluster
+	#create a list to store metabolites and genes for each merged cluster
 	metabolites_list = []
 	genes_list = []
 
-	# Iterate through merged clusters and separate elements into metabolites and genes
+	#iterate through merged clusters and separate elements into metabolites and genes
 	for i, cluster in enumerate(merged_clusters):
-		metabolites = [element for element in cluster if element in metabolite_features]
-		genes = [element for element in cluster if element not in metabolite_features]
+
+		metabolites = []
+		genes = []
+
+		#metabolites = [element for element in cluster if element in metabolite_features]
+		#genes = [element for element in cluster if element not in metabolite_features]
+		for element in cluster:
+			#if element in metabolite_features:
+			if element.startswith(first_chars):
+				metabolites.append(element)
+			else:
+				genes.append(element)
+
 		#append the metabolites and genes to their respective lists
 		metabolites_list.append(' '.join(metabolites))
 		genes_list.append(' '.join(genes))
@@ -231,7 +258,7 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 	7. Save the merged DataFrame to a new file.
 	'''
 
-	# Create a graph using NetworkX
+	#create a graph using NetworkX
 	G = nx.Graph()
 
 	# Add nodes and edges based on the correlation matrix
@@ -241,34 +268,34 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 			if i != j and value >= threshold:  # Adjust the threshold as needed
 				G.add_edge(i, j, weight=value)
 
-	# Convert the NetworkX graph to a SciPy sparse matrix
+	#convert the NetworkX graph to a SciPy sparse matrix
 	adjacency_matrix = nx.to_scipy_sparse_array(G)
 
-	# Apply the MCL algorithm
+	#apply the MCL algorithm
 	result = mc.run_mcl(adjacency_matrix)
 
-	# Extract clusters from the result
+	#extract clusters from the result
 	clusters = mc.get_clusters(result)
 
-	# Retrieve column names corresponding to cluster values
+	#retrieve column names corresponding to cluster values
 	clustered_columns = [[corr_df.index[i] for i in cluster] for cluster in clusters]
 
-	# Print the clusters with column names
+	#print the clusters with column names
 	#for i, cluster in enumerate(clustered_columns, 1):
 	#	print(f'Cluster {i}: {cluster}')
 
-	#Return a dataframe with cluster ID and its corresponding genes and metabolites
+	#return a dataframe with cluster ID and its corresponding genes and metabolites
 	cluster_df = pd.DataFrame([','.join(cluster) for cluster in clustered_columns], columns=['Cluster'])
 	
 	cluster_df.columns = ['Cluster']
 
-	# Split the 'Cluster' column in the first DataFrame into separate IDs
+	#split the 'Cluster' column in the first DataFrame into separate IDs
 	cluster_df['Cluster'] = cluster_df['Cluster'].str.split(',')
 
-	# Create a mapping dictionary for IDs and Members
+	#create a mapping dictionary for IDs and Members
 	id_to_members = raw_df.set_index('ID')['Members'].to_dict()
 
-	# Merge the 'Members' based on IDs in the first DataFrame
+	#merge the 'Members' based on IDs in the first DataFrame
 	def merge_members(cluster):
 		members = [id_to_members.get(cluster_id, '') for cluster_id in cluster]
 		return ', '.join(members)
@@ -277,12 +304,12 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 
 	cluster_df[['metabolites', 'genes']] = cluster_df.apply(split_and_match, args=(metabolite_df,), axis=1)
 
-	# Convert the list in the 'Cluster' column to a string
+	#convert the list in the 'Cluster' column to a string
 	cluster_df['Cluster'] = cluster_df['Cluster'].apply(lambda x: ', '.join(x))
 	cluster_df['metabolites'] = cluster_df['metabolites'].apply(lambda x: ', '.join(x))
 	cluster_df['genes'] = cluster_df['genes'].apply(lambda x: ', '.join(x))
 
-	# drop the merged columns
+	#drop the merged columns
 	cluster_df = cluster_df.drop(columns=['Merged Members'])
 
 	return cluster_df
@@ -384,6 +411,58 @@ def calc_metafingerprints(row, transcripts_df, metabolite_df):
 	return row
 
 
+def export_merged_clusters_to_csv(sqlite_db_name, table_name, output_dir):
+    """
+    Export each row of the Combine_MC table as an individual CSV file, ensuring that
+    Metabolites and Genes columns are comma-separated.
+
+    Args:
+    - sqlite_db_name (str): Path to the SQLite database file.
+    - table_name (str): Name of the table containing merged clusters (e.g., Combine_MC).
+    - output_dir (str): Directory where the individual CSV files will be saved.
+
+    Returns:
+    - None
+    """
+    # Ensure the output directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect(sqlite_db_name)
+
+    try:
+        # Load the table into a pandas DataFrame
+        query = f"SELECT * FROM {table_name}"
+        clusters_df = pd.read_sql_query(query, conn)
+
+        # Iterate through each row and save it as a CSV file
+        for _, row in clusters_df.iterrows():
+            cluster_id = row['ID']  # Assuming the table has a column 'ID' for cluster names
+            metabolites = row['Metabolites'].replace(' ', ',')  # Replace spaces with commas
+            genes = row['Genes'].replace(' ', ',')  # Replace spaces with commas
+
+            # Create a DataFrame for this cluster, including the ID
+            cluster_data = pd.DataFrame({
+                'id': [cluster_id],
+                'metabolites': [metabolites],
+                'genes': [genes]
+            })
+
+            # Create a filename for the cluster
+            filename = f"{cluster_id}.csv"
+
+            # Save the cluster as a CSV file
+            cluster_data.to_csv(os.path.join(output_dir, filename), index=False)
+            #print(f"Exported {filename} to {output_dir}")
+
+    except Exception as e:
+        print(f"Error exporting clusters: {str(e)}")
+    finally:
+        # Close the SQLite connection
+        conn.close()
+
+
 def main(Options):
 
 	#raw expression and features file.
@@ -469,14 +548,17 @@ def main(Options):
 				metabolite_features = metabolite_df['feature'].to_list()
 				merged_df = merge_clusters_overlapping(frame, metabolite_features, Options.decay_rate)
 
-			# send results to the database
-			table_name = f"merged_cluster_overlap_metabolites_DR_{Options.decay_rate}"
+			tablename = "Combine_MC"
 			
 			if Options.decay_rate:
 				
-				table_name = table_name + "_DR_" + str(Options.decay_rate)
+				table_name = tablename + "_DR_" + str(Options.decay_rate)
+				
 				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
-
+				
+				if Options.outfiles:
+					output_dir = "merged_clusters_csv"
+					export_merged_clusters_to_csv(Options.sqlite_db_name, table_name, output_dir)
 			else:
 				
 				pass

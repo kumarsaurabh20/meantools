@@ -123,12 +123,6 @@ def import_from_sql(sqlite_db_name, sqlite_tablename="", df_columns=[], conditio
     :param6 clone: Only enable when data from clusterONE output is required
     '''
 
-    if os.path.isfile(sqlite_db_name):
-        conn = sqlite3.connect(sqlite_db_name)
-    else:
-        raise FileNotFoundError("The {} file was not found! Did you run the correlation step first?".format(sqlite_db_name))
-
-
     # Connect to the SQLite database
     conn = sqlite3.connect(sqlite_db_name)
     
@@ -672,7 +666,7 @@ def df_to_graph(df, use_pd_graph):
     return G
 
 
-# This function gathers edge weight support for the network
+#this function gathers edge weight support for the network
 def get_max_for_substrate_and_product(row, df, substrate=True):
 
     substrate_id = row['predicted_substrate_id']
@@ -680,7 +674,7 @@ def get_max_for_substrate_and_product(row, df, substrate=True):
 
     filtered_df = df[(df['predicted_substrate_id'] == substrate_id) & (df['predicted_product_id'] == product_id)]
 
-    # Convert empty strings in numeric columns to NaN
+    #convert empty strings in numeric columns to NaN
     filtered_df[['correlation_substrate', 'P_substrate', 'correlation_product', 'P_product']] = \
         filtered_df[['correlation_substrate', 'P_substrate', 'correlation_product', 'P_product']].apply(pd.to_numeric, errors='coerce')
 
@@ -692,6 +686,20 @@ def get_max_for_substrate_and_product(row, df, substrate=True):
         return mean_correlation_product
 
 
+#this function gathers reaction likelihood scores for the network
+def get_substrate_likelihood_score(row, df):
+
+    substrate_id = row['predicted_substrate_id']
+    #product_id = row['predicted_product_id']
+
+    filtered_df = df[(df['predicted_substrate_id'] == substrate_id)]
+
+    #convert empty strings in numeric columns to NaN
+    filtered_df[['substrate_likelihood']] = filtered_df[['substrate_likelihood']].apply(pd.to_numeric, errors='coerce')
+
+    max_substrate_likelihood = filtered_df['substrate_likelihood'].max()
+    
+    return max_substrate_likelihood
 
 def count_edge_support_summary(data):
     
@@ -745,7 +753,7 @@ def get_cycle_edges_to_remove(G, structures_attributes_df, cycle_size=0):
 
     for cur_cycle_nodes in nx.simple_cycles(G):  # generator; iterates over all cycles in the graph
         
-        print(f"This is cur_cycle_nodes {cur_cycle_nodes}")
+        #print(f"This is cur_cycle_nodes {cur_cycle_nodes}")
 
         if not cycle_size or len(cur_cycle_nodes) == cycle_size:
             edges_to_break_cycle = []
@@ -753,27 +761,27 @@ def get_cycle_edges_to_remove(G, structures_attributes_df, cycle_size=0):
 
             for substrate, product in get_edges_from_nodes(cur_cycle_nodes):
 
-                print(f"This is substrate: {substrate} and this is product: {product}")
+                #print(f"This is substrate: {substrate} and this is product: {product}")
 
 
                 cur_edge_data = G.get_edge_data(substrate, product)
 
-                print(f"This is current_edge_data {cur_edge_data}")
+                #print(f"This is current_edge_data {cur_edge_data}")
 
                 cur_edge_support = count_edge_support_summary(cur_edge_data)
 
-                print(f"This is cur_edge_support {cur_edge_support}")
+                #print(f"This is cur_edge_support {cur_edge_support}")
                 
                 # Kumar
                 # remove duplicates in the structures_attributes_df file
                 if substrate not in list(structures_attributes_df['root']) or product not in list(structures_attributes_df['predicted_id']):
                     
-                    print(f"This substrate {substrate} and product {product} are not found in the structures_attributes_df_indexed.index")
+                    #print(f"This substrate {substrate} and product {product} are not found in the structures_attributes_df_indexed.index")
                     pass
 
                 else:
 
-                    print(f"This substrate {substrate} and product {product} were found in the structures_attributes_df_indexed.index")
+                    #print(f"This substrate {substrate} and product {product} were found in the structures_attributes_df_indexed.index")
 
                     #cur_substrate_distance = structures_attributes_df_indexed.root_distance[substrate]
                     #cur_product_distance = structures_attributes_df_indexed.root_distance[product]
@@ -782,8 +790,8 @@ def get_cycle_edges_to_remove(G, structures_attributes_df, cycle_size=0):
                     cur_product_distance = structures_attributes_df.loc[(structures_attributes_df['predicted_id'] == product), 'root_distance'].iloc[0]
                     
 
-                    print(f"This is cur_substrate_distance: {cur_substrate_distance}")
-                    print(f"This is cur_product_distance: {cur_product_distance}")
+                    #print(f"This is cur_substrate_distance: {cur_substrate_distance}")
+                    #print(f"This is cur_product_distance: {cur_product_distance}")
                 
                 if cur_substrate_distance == cur_product_distance:
                     cycle_supports[substrate] = cur_edge_support
@@ -800,7 +808,7 @@ def get_cycle_edges_to_remove(G, structures_attributes_df, cycle_size=0):
             else:
                 for n in edges_to_break_cycle:
                     edges_to_remove.append(n)
-    print(f"These edges are going to be removed {edges_to_remove}")
+    #print(f"These edges are going to be removed {edges_to_remove}")
     return edges_to_remove
 
 
@@ -917,3 +925,37 @@ def load_enzyme_input(Options):
     merged_df = merged_df.drop_duplicates()         # annotations_df merge produces duplicates due to pfam_rule
 
     return merged_df
+
+
+def validate_file_path(file_path, description):
+
+    try:
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"Error: The {description} '{file_path}' file is not accessible.")
+    except FileNotFoundError as e:
+        print(e)
+        sys.exit(1)
+
+
+def validate_sqlite_table(db_path, table_name):
+    """
+    Validate that the specified table exists in the SQLite database.
+    """
+    try:
+        if not os.path.isfile(db_path):
+            raise FileNotFoundError(f"Error: The SQLite database '{db_path}' is not accessible.")
+    except Exception as e:
+        print(e)
+        sys.exit(1)
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';")
+        table_exists = cursor.fetchone() is not None
+        conn.close()
+        if not table_exists:
+            raise ValueError(f"Error: Could not validate table '{table_name}' in the database '{db_path}'.")
+    except Exception as e:
+        print(e)
+        sys.exit(1)
