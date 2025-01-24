@@ -21,6 +21,7 @@ plt.rcParams['figure.max_open_warning'] = 500
 #
 
 def get_args():
+  
 	parser = argparse.ArgumentParser(prog='merge_clusters',
                                      description='merge functional clusters (FC) based on overlapping metabolites or genes!',
                                      epilog='Contact - kumarsaurabh.singh@maastrichtuniversity.nl')
@@ -40,6 +41,7 @@ def get_args():
 	optional.add_argument('-f','--annotation_file', default='', action='store', required=False, help='Annotation file to annotate FCs. Only if -a is flagged! <gene><tab><annotation>')
 	optional.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
 	optional.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expressio network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
+  parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns!')
 	optional.add_argument('-o', '--outfiles', default=False, required=False, action='store_true', help='This will generate output CSV files for each merged clusters!')
 	
 	return parser.parse_args()
@@ -98,7 +100,7 @@ def generate_heatmaps(df, cluster_id, directory):
 	# Create the directory for the heatmaps, if it doesn't exist
 	if not os.path.exists(directory):
 		os.makedirs(directory)
-  	
+	  
 	# Calculate the size based on the number of features
 	#num_features = len(extracted_rows_combined.columns)
 	#figsize = (8, num_features // 2)  # Adjust this factor to control the height
@@ -324,6 +326,56 @@ def merge_clusters_fingerprinting(raw_df, corr_df, metabolite_df, threshold=0.5,
 
 	'''
 
+
+def merge_clusters_coex(df, evidence_df,metabolite_features, dr=25):
+    # Dynamically determine metabolite features from the dataframe
+    
+    # Extract clusters based on decay rate
+    decay_rate = f"DR_{dr}"
+    selected_rows = df[df['Source'] == decay_rate]
+    cluster_dict = selected_rows.set_index('ID')['Members'].str.split(' ', expand=False).to_dict()
+
+    # Create a graph to represent the relationships
+    G = nx.Graph()
+
+    # Add edges for genes/metabolites in the same cluster
+    for cluster_key, cluster in cluster_dict.items():
+        for gene1 in cluster:
+            for gene2 in cluster:
+                if gene1 != gene2:
+                    G.add_edge(gene1, gene2)
+
+    # Add edges from the evidence file
+    if 'gene1' in evidence_df.columns and 'gene2' in evidence_df.columns:
+        if 'edgeweight' in evidence_df.columns:
+            for _, row in tqdm(evidence_df.iterrows(), total=evidence_df.shape[0], desc='Adding edges from evidence'):
+                if row['edgeweight'] >= 0.5:
+                    G.add_edge(row['gene1'], row['gene2'], weight=row['edgeweight'])
+        else:
+            raise ValueError("'edgeweight' column missing in the evidence dataframe.")
+    else:
+        raise ValueError("'gene1' or 'gene2' column missing in the evidence dataframe.")
+
+    # Find connected components in the graph
+    connected_components = list(nx.connected_components(G))
+
+    # Separate genes and metabolites for each cluster
+    merged_clusters = []
+    for i, component in enumerate(connected_components):
+        metabolites = [node for node in component if node in metabolite_features]
+        genes = [node for node in component if node not in metabolite_features]
+        merged_clusters.append({
+            'ID': f'MC_{i+1}',
+            'Metabolites': ', '.join(sorted(metabolites)),
+            'Genes': ', '.join(sorted(genes))
+        })
+
+    # Create a dataframe for the merged clusters
+    merged_df = pd.DataFrame(merged_clusters)
+    return merged_df
+
+
+
 def fill_extracted_rows(row, transcripts_df, metabolite_df):
 
 	extracted_rows_combined = pd.DataFrame()
@@ -496,7 +548,6 @@ def main(Options):
 				metabolite_features = metabolite_df['feature'].to_list()
 				merged_df = merge_clusters_overlapping(frame, metabolite_features, Options.decay_rate)
 
-			# send results to the database
 			tablename = "Combine_MC"
 			
 			if Options.decay_rate:
@@ -511,7 +562,7 @@ def main(Options):
 			else:
 				
 				pass
-				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, tablename, index=False)
+				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
 			
 		elif Options.merge_clusters == "fingerprinting":
 
@@ -551,8 +602,22 @@ def main(Options):
 			# send results to the database
 			gizmos.export_to_sql(Options.sqlite_db_name, cluster_dataframe, 'merged_clusters_fingerprint', index=False)
 
-		else:
-			sys.exit("Not a valid method for merging cluster. Try again!")
+		elif Options.merge_method == "coexpression":
+
+			if Options.evidence_source == "coex":
+				if Options.evidence_file:
+					evidence_df = pd.read_csv(Options.evidence_file)
+				else:
+					raise ValueError("Evidence file (-ef) is required when evidence source is 'coex'.")
+				
+				metabolite_features = metabolite_df['feature'].to_list()
+				merged_df = merge_clusters_coex(frame, evidence_df, metabolite_features, Options.decay_rate)
+				table_name = f"merged_cluster_coex_DR_{Options.decay_rate}"
+				gizmos.export_to_sql(Options.sqlite_db_name, merged_df, table_name, index=False)
+				print(f"Coexpression clusters merged and saved to table: {table_name}")
+			
+			else:
+				sys.exit("Evidence source is not set to 'coex'.")
 
 
 if __name__ == "__main__":
