@@ -657,11 +657,14 @@ def df_to_graph(df, use_pd_graph):
     else:
         G = nx.MultiDiGraph()
         for i, cur_row in df.iterrows():
-            G.add_edge(cur_row.source, cur_row.target)
+            #G.add_edge(cur_row.source, cur_row.target) # Commented on 18/02/2024 Panads 'series' issue
+            G.add_edge(cur_row["predicted_substrate_id"], cur_row["predicted_product_id"])
 
             #Note: loop below is not necessary? cur_row.index is the predicted_substrate_id
             for attribute in cur_row.index:
-                G[cur_row.source][cur_row.target].update({attribute: cur_row[attribute]})
+                #G[cur_row.source][cur_row.target].update({attribute: cur_row[attribute]})
+                #G[cur_row["predicted_substrate_id"]][cur_row["predicted_product_id"]].update({attribute: cur_row[attribute]})
+                G.edges[cur_row["predicted_substrate_id"], cur_row["predicted_product_id"], 0][attribute] = cur_row[attribute]
 
     return G
 
@@ -833,12 +836,54 @@ def load_correlations(Options):
     return correlation_df
 
 
+def validate_file_path(file_paths, description):
+
+    try:
+
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+
+        for file_path in file_paths:
+            if os.path.isfile(file_path):
+                return
+
+        raise FileNotFoundError(f"Error: The {description} '{file_path}' file is not accessible.")
+    except FileNotFoundError as e:
+        print(e)
+        sys.exit(1)
+
+
+def validate_sqlite_table(db_path, table_name):
+    """
+    Validate that the specified table exists in the SQLite database.
+    """
+    try:
+        if not os.path.isfile(db_path):
+            raise FileNotFoundError(f"Error: The SQLite database '{db_path}' is not accessible.")
+    except Exception as e:
+        print(e)
+        sys.exit(1)
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';")
+        table_exists = cursor.fetchone() is not None
+        conn.close()
+        if not table_exists:
+            raise ValueError(f"Error: Could not validate table '{table_name}' in the database '{db_path}'.")
+    except Exception as e:
+        print(e)
+        sys.exit(1)
+
+
 def load_enzyme_input(Options):
     """
     loads gene annotations, pfam-RR relationship file, and correlation and merges them.
     :return:
     """
-    pfam_dict_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pfams_dict.csv')  # Acc,Name,Desc
+    validate_file_path(["pfams_dict.csv", "data/pfams_dict.csv"], "PFAM dictionary")
+    pfam_dict_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/pfams_dict.csv')  # Acc,Name,Desc
     # GENE ANNOTATIONS
     # gene, pfam1;pfam2
     if Options.gene_annotation:
@@ -925,37 +970,3 @@ def load_enzyme_input(Options):
     merged_df = merged_df.drop_duplicates()         # annotations_df merge produces duplicates due to pfam_rule
 
     return merged_df
-
-
-def validate_file_path(file_path, description):
-
-    try:
-        if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"Error: The {description} '{file_path}' file is not accessible.")
-    except FileNotFoundError as e:
-        print(e)
-        sys.exit(1)
-
-
-def validate_sqlite_table(db_path, table_name):
-    """
-    Validate that the specified table exists in the SQLite database.
-    """
-    try:
-        if not os.path.isfile(db_path):
-            raise FileNotFoundError(f"Error: The SQLite database '{db_path}' is not accessible.")
-    except Exception as e:
-        print(e)
-        sys.exit(1)
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}';")
-        table_exists = cursor.fetchone() is not None
-        conn.close()
-        if not table_exists:
-            raise ValueError(f"Error: Could not validate table '{table_name}' in the database '{db_path}'.")
-    except Exception as e:
-        print(e)
-        sys.exit(1)

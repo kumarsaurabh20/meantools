@@ -111,14 +111,45 @@ def get_reaction_likelihood_scores(reactions_df, ec_map_file, Options):
     if pfam_ec_map["EC-Number"].isna().any():
         raise ValueError("Some PFAM IDs in the mapping file do not have associated EC IDs. Check the mapping file.")
 
-    def map_pfam_to_ec(pfam):
-        if pfam not in pfam_to_ec_dict:
-            raise ValueError(f"PFAM ID '{pfam}' is not found in the mapping file.")
-        ec = pfam_to_ec_dict.get(pfam)
-        if pd.isna(ec):
-            raise ValueError(f"EC number for the PFAM ID '{pfam}' is missing.")
-        return ec
+    #def map_pfam_to_ec(pfam):
+    #    if pfam not in pfam_to_ec_dict:
+    #        raise ValueError(f"PFAM ID '{pfam}' is not found in the mapping file.")
+    #    ec = pfam_to_ec_dict.get(pfam)
+    #    if pd.isna(ec):
+    #        raise ValueError(f"EC number for the PFAM ID '{pfam}' is missing.")
+    #    return ec
 
+    def map_pfam_to_ec(pfam):
+        """Maps PFAM ID(s) to a single EC number. If multiple PFAMs share the same EC, return one EC."""
+        
+        #split PFAM IDs if they are comma-separated
+        pfam_list = pfam.split(",") if "," in pfam else [pfam]
+        ec_set = set()
+
+        for pfam_id in pfam_list:
+            pfam_id = pfam_id.strip()
+            if pfam_id not in pfam_to_ec_dict:
+                print(f"Warning: PFAM ID '{pfam_id}' not found in the mapping file.")
+                continue
+
+            ec = pfam_to_ec_dict.get(pfam_id)
+            if pd.isna(ec):
+                print(f"Warning: EC number for PFAM ID '{pfam_id}' is missing.")
+                continue
+
+            ec_set.add(ec)
+
+        if not ec_set:
+            return "No EC Found"
+
+        if len(ec_set) == 1:
+            return ec_set.pop()
+
+        print(f"Warning: Multiple EC numbers found for PFAM IDs '{pfam}': {ec_set}. Using first EC found.")
+
+        return next(iter(ec_set))
+
+   
     try:
         reactions_df["enzyme_ec"] = reactions_df["enzyme_pfams"].apply(map_pfam_to_ec)
     except ValueError as e:
@@ -139,7 +170,7 @@ def get_reaction_likelihood_scores(reactions_df, ec_map_file, Options):
     
     pool = Pool(processes=4, maxtasksperchild=10)
     total_iterations = len(reactions_df)
-    with tqdm(total=total_iterations, desc="Getting correlations") as pbar:
+    with tqdm(total=total_iterations, desc="Getting reactions") as pbar:
         for index, row in reactions_df.iterrows():  
             pool.apply_async(process_reactions, args=((index,row), ns.options), error_callback=print_child_proc_error, callback=append_result)
         pool.close()
