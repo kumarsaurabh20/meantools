@@ -26,22 +26,24 @@ def get_args():
                                      description='merge functional clusters (FC) based on overlapping metabolites or genes!',
                                      epilog='Contact - kumarsaurabh.singh@maastrichtuniversity.nl')
 	
+	# Required arguments 
 	required = parser.add_argument_group('Required arguments')
-	required.add_argument('-ft','--feature_table', default='', action='store', required=True, help='Metabolomics-based feature table!')
-	required.add_argument('-qm','--quantitation_matrix', default='', action='store', required=True, help='Normalized expression table from the RNAseq data!')
+	required.add_argument('-ft','--feature_table', action='store', required=True, help='Metabolomics-based feature table!')
+	required.add_argument('-qm','--quantitation_matrix', action='store', required=True, help='Normalized expression table from the RNAseq data!')
 	required.add_argument('-mc', '--merge_clusters', default=False, action='store_true', required=False, help='If you want to merge FCs!')
 	required.add_argument('-mm', '--merge_method', default='overlap', required=False, choices=['fingerprinting', 'overlap', 'coexpression'], help='Default: overlap!')
-	required.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Deacy rate of FCs. Default: 25')
-	required.add_argument('-dn', '--sqlite_db_name', default='', action='store', required=True, help='Provide a name for the database')
+	required.add_argument('-dr', '--decay_rate', default=25, type=int, required=False, help='Decay rate of FCs. Default: 25')
+	required.add_argument('-dn', '--sqlite_db_name', action='store', required=True, help='Provide a name for the database')
 
+	# Optional arguments
 	optional = parser.add_argument_group('Optional arguments')
 	optional.add_argument('-l','--targeted_list', default='', action='store', required=False, help='Target list of genes and metabolites in a csv file. <ID><metabolites><genes>')
 	optional.add_argument('-a', '--annotation', default=False, action='store_true', required=False, help='Flag for annotation. Default is False')
 	optional.add_argument('-m', '--heatmap', default=False, action='store_true', required=False, help='Flag for generating heatmaps for each FCs. Default is False')
 	optional.add_argument('-f','--annotation_file', default='', action='store', required=False, help='Annotation file to annotate FCs. Only if -a is flagged! <gene><tab><annotation>')
 	optional.add_argument('-e', '--evidence', default=False, action='store_true', required=False, help='Flag. Additional evidences like new edge scores from co-expression or spectral networking!')
-	optional.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expressio network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
-  parser.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns!')
+	optional.add_argument('-es', '--evidence_source', default='', required=False, choices=['coex', 'specnet'], help='Default: edge scores from co-expression network. Other option is edge scores from spectral networking using metabolomics MS/MS data!')
+	optional.add_argument('-ef', '--evidence_file', default='', action='store', required=False, help='Path to the evidence file (co-expression or spectral networking file). If -es is set to coex, then the file should contain gene1, gene2, edgeweight columns. If -es is set to specnet, then the file should contain metabolite1, metabolite2, edgeweight columns!')
 	optional.add_argument('-o', '--outfiles', default=False, required=False, action='store_true', help='This will generate output CSV files for each merged clusters!')
 	
 	return parser.parse_args()
