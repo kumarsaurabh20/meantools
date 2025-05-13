@@ -470,19 +470,27 @@ def main(Options):
 	#raw expression and features file.
 	#used for computing fingerprints
 	transcripts = pd.read_csv(Options.quantitation_matrix)
-	transcripts = transcripts.rename(columns={'gene': 'feature'})
+	# takes first column as gene column and renames it to 'feature'
+	first_column_name = transcripts.columns[0]
+	transcripts = transcripts.rename(columns={first_column_name: 'feature'})
 	metabolites = pd.read_csv(Options.feature_table)
-	metabolites = metabolites.rename(columns={'metabolite': 'feature'})
+	# takes first column as metabolite column and renames it to 'feature'
+	first_column_name = metabolites.columns[0]
+	metabolites = metabolites.rename(columns={first_column_name: 'feature'})
 
 	#keep common labels between the two datasets
 	#it is important to keep the gene and metabolite column names (from the main omics dataset) 
 	#as 'feature'
+	# Find common columns between both dataframes, and ensure 'feature' is retained
 	transcripts_labels = set(transcripts.columns)
 	metabolites_labels = set(metabolites.columns)
 	common_labels = sorted(list(transcripts_labels.intersection(metabolites_labels)))
+	if 'feature' not in common_labels:
+		common_labels.append('feature')  # Retain the 'feature' column explicitly
+
 	transcripts_df = transcripts[common_labels]
 	metabolite_df = metabolites[common_labels]
-	
+		
 	#scale the transcriptomics and metabolomics datasets by using z-scores 
 	#especially for heatmaps
 	t_numeric_columns = transcripts_df.copy()
